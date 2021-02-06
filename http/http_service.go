@@ -12,14 +12,23 @@ import (
 	"net/http"
 )
 
-func ListTopics(writer http.ResponseWriter, request *http.Request) {
+type Service interface {
+	ListTopics(writer http.ResponseWriter, request *http.Request)
+	ReadMessages(writer http.ResponseWriter, request *http.Request)
+}
+
+type HttpService struct {
+	kafSvc *kaf.KafkaService `di.inject:"kafkaService"`
+}
+
+func (self *HttpService) ListTopics(writer http.ResponseWriter, request *http.Request) {
 	var (
 		message  []string
 		response []byte
 		err      error
 	)
 
-	if message, err = kaf.ListTopics(); err != nil {
+	if message, err = self.kafSvc.ListTopics(); err != nil {
 		log.Printf(err.Error())
 	}
 
@@ -32,7 +41,7 @@ func ListTopics(writer http.ResponseWriter, request *http.Request) {
 	}
 }
 
-func ReadMessages(writer http.ResponseWriter, request *http.Request) {
+func (self *HttpService) ReadMessages(writer http.ResponseWriter, request *http.Request) {
 	var (
 		message  []kaf.Message
 		response []byte
@@ -43,7 +52,7 @@ func ReadMessages(writer http.ResponseWriter, request *http.Request) {
 	var process = func() ([]byte, error) {
 		var topic = request.URL.Query().Get("topic")
 
-		if message, err = kaf.ReadMessages(topic, offset); err != nil {
+		if message, err = self.kafSvc.ReadMessages(topic, offset); err != nil {
 			return nil, err
 		}
 
