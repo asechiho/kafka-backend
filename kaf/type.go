@@ -1,7 +1,6 @@
 package kaf
 
 import (
-	"encoding/base64"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -17,9 +16,7 @@ type Message struct {
 }
 
 func New(msg kafka.Message) Message {
-	var (
-		headers = map[string]string{}
-	)
+	headers := map[string]string{}
 
 	for _, header := range msg.Headers {
 		headers[header.Key] = string(header.Value)
@@ -35,8 +32,4 @@ func New(msg kafka.Message) Message {
 		PayloadSize: len(msg.Value),
 		Payload:     string(msg.Value),
 	}
-}
-
-func decodeValue(value []byte) string {
-	return base64.StdEncoding.EncodeToString(value)
 }
