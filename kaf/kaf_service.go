@@ -6,7 +6,14 @@ import (
 	"time"
 )
 
-func ListTopics() ([]string, error) {
+type Service interface {
+	ListTopics() ([]string, error)
+	ReadMessages(topic string, offset int) ([]Message, error)
+}
+
+type KafkaService struct{}
+
+func (self *KafkaService) ListTopics() ([]string, error) {
 	var (
 		conn       *kafka.Conn
 		partitions []kafka.Partition
@@ -34,7 +41,7 @@ func ListTopics() ([]string, error) {
 	return topics, nil
 }
 
-func ReadMessages(topic string, offset int) ([]Message, error) {
+func (self *KafkaService) ReadMessages(topic string, offset int) ([]Message, error) {
 	var (
 		reader   *kafka.Reader
 		err      error
