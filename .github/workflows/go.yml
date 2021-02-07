@@ -9,6 +9,6 @@ jobs:
 
     steps:
       - name: Install lint
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin v1.32.2
+        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh
       - name: Lint code
-        run: make lint
+        run: golangci/golangci-lint run -e ST1006,SA1029 --path-prefix $(PWD)
