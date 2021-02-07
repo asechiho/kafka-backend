@@ -4,6 +4,8 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+const TimeLayout = "2021-02-05T10:02:40.617Z"
+
 type Message struct {
 	Topic       string            "json:\"topic\""
 	Headers     map[string]string "json:\"headers\""
@@ -28,7 +30,7 @@ func New(msg kafka.Message) Message {
 		Offset:      msg.Offset,
 		Partition:   msg.Partition,
 		Timestamp:   msg.Time.Unix(),
-		At:          msg.Time.Format("2021-02-05T10:02:40.617Z"),
+		At:          msg.Time.Format(TimeLayout),
 		PayloadSize: len(msg.Value),
 		Payload:     string(msg.Value),
 	}

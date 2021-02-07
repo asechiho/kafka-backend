@@ -3,6 +3,7 @@ package kaf
 import (
 	"context"
 	"github.com/segmentio/kafka-go"
+	"kafka-backned/repository"
 	"time"
 )
 
@@ -11,7 +12,10 @@ type Service interface {
 	ReadMessages(topic string, offset int) ([]Message, error)
 }
 
-type KafkaService struct{}
+type KafkaService struct {
+	repSvc         *repository.RepositoryService `di.inject:"repositoryService"`
+	dtoTransformer *DTOTransformer               `di.inject:"dtoTransformer"`
+}
 
 func (self *KafkaService) ListTopics() ([]string, error) {
 	var (
@@ -41,12 +45,13 @@ func (self *KafkaService) ListTopics() ([]string, error) {
 	return topics, nil
 }
 
-func (self *KafkaService) ReadMessages(topic string, offset int) ([]Message, error) {
+func (self *KafkaService) ReadMessages(topic string) ([]Message, error) {
 	var (
-		reader   *kafka.Reader
-		err      error
-		response []Message
-		message  kafka.Message
+		reader      *kafka.Reader
+		err         error
+		response    []Message
+		kafResponse []repository.Message
+		message     kafka.Message
 	)
 
 	//todo: add flags
@@ -58,16 +63,28 @@ func (self *KafkaService) ReadMessages(topic string, offset int) ([]Message, err
 	})
 	defer reader.Close()
 
-	reader.SetOffset(int64(offset))
-
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
+	if kafResponse, err = self.repSvc.List(topic); err != nil {
+		return nil, err
+	}
+
+	for _, value := range kafResponse {
+		response = append(response, self.dtoTransformer.ConvertMessageToKafka(value))
+	}
+	reader.SetOffset(int64(len(kafResponse)))
 
 	for {
 		if message, err = reader.ReadMessage(ctx); err != nil {
 			break
 		}
-		response = append(response, New(message))
+
+		msg := New(message)
+		if _, err = self.repSvc.Insert(topic, self.dtoTransformer.ConvertMessageToDb(msg)); err != nil {
+			return nil, err
+		}
+		response = append(response, msg)
 	}
 
 	return response, nil
