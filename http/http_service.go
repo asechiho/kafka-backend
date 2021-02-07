@@ -29,7 +29,7 @@ func (self *HttpService) ListTopics(writer http.ResponseWriter, request *http.Re
 	)
 
 	if message, err = self.kafSvc.ListTopics(); err != nil {
-		log.Printf(err.Error())
+		log.Print(err.Error())
 	}
 
 	if response, err = json.Marshal(message); err != nil {
@@ -67,7 +67,7 @@ func (self *HttpService) ReadMessages(writer http.ResponseWriter, request *http.
 func handleServerSentEvent(writer http.ResponseWriter, request *http.Request, process func() ([]byte, error)) {
 	conn, _, _, err := ws.UpgradeHTTP(request, writer)
 	if err != nil {
-		log.Printf(err.Error())
+		log.Print(err.Error())
 	}
 
 	go func() {
@@ -88,8 +88,8 @@ func handleServerSentEvent(writer http.ResponseWriter, request *http.Request, pr
 }
 
 func logAndClose(err error, conn net.Conn) {
-	log.Printf(err.Error())
-	log.Printf("Close connection...")
+	log.Print(err.Error())
+	log.Print("Close connection...")
 	conn.Close()
 }
 

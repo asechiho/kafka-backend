@@ -74,7 +74,7 @@ func (self *KafkaService) ReadMessages(topic string) ([]Message, error) {
 	for _, value := range kafResponse {
 		response = append(response, self.dtoTransformer.ConvertMessageToKafka(value))
 	}
-	reader.SetOffset(int64(len(kafResponse)))
+	_ = reader.SetOffset(int64(len(kafResponse)))
 
 	for {
 		if message, err = reader.ReadMessage(ctx); err != nil {

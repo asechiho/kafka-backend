@@ -21,12 +21,12 @@ func New() *RepositoryService {
 
 	cursor, err = r.DBList().Contains(dbName).Run(session)
 	if err != nil {
-		log.Printf(err.Error())
+		log.Print(err.Error())
 	}
 
 	value, _ = cursor.NextResponse()
 	if string(value) != "true" {
-		if cursor, err = r.DBCreate(dbName).Run(session); err != nil {
+		if _, err = r.DBCreate(dbName).Run(session); err != nil {
 			log.Fatalf("Database was not created: %s", err.Error())
 		}
 	}
@@ -56,7 +56,7 @@ func (self *RepositoryService) Insert(topicName string, message Message) (int, e
 	self.InitializeTable(topic, session)
 
 	if wrResponse, err = r.DB(dbName).Table(topic).Insert(message).RunWrite(session); err != nil {
-		log.Printf(err.Error())
+		log.Print(err.Error())
 	}
 
 	return wrResponse.Inserted, nil
@@ -79,7 +79,7 @@ func (self *RepositoryService) List(topicName string) ([]Message, error) {
 	}
 
 	if cursor, err = r.DB(dbName).Table(topic).GetAll().Run(session); err != nil {
-		log.Printf(err.Error())
+		log.Print(err.Error())
 		return nil, err
 	}
 

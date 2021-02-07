@@ -4,7 +4,7 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-const TimeLayout = "2021-02-05T10:02:40.617Z"
+const TimeLayout = "yyyy-MM-ddTHH:mm:ss.ms"
 
 type Message struct {
 	Topic       string            "json:\"topic\""
