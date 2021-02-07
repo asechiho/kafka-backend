@@ -4,11 +4,14 @@ on: push
 
 jobs:
   lint:
-    name: Lint code
     runs-on: ubuntu-latest
 
+    container:
+      image:  golang:1.15.5-buster
+
     steps:
-      - name: Install lint
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b bin v1.32.2
+      - name: Install linter
+      - run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $GOPATH/bin v1.32.2
+
       - name: Lint code
-        run: bin/golangci-lint run -e ST1006,SA1029 -- --path-prefix pwd
+      - run: $GOPATH/golangci-lint run -e ST1006,SA1029 --path-prefix pwd
