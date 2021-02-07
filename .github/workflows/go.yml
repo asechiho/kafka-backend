@@ -14,4 +14,4 @@ jobs:
         run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $GOPATH/bin v1.32.2
 
       - name: Lint code
-        run: $GOPATH/bin/golangci-lint run -e ST1006,SA1029 --path-prefix pwd
+        run: $GOPATH/bin/golangci-lint run -e ST1006,SA1029
