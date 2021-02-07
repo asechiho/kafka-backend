@@ -9,12 +9,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+
       - name: Install linter
         run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ~/bin v1.32.2
 
-      - name: LS
-        run: ls -la $GITHUB_WORKSPACE
-      - name: PWD
-        run: pwd
       - name: Lint code
         run: ~/bin/golangci-lint run -e ST1006,SA1029 --path-prefix $GITHUB_WORKSPACE
