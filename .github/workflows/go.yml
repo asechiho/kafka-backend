@@ -5,8 +5,10 @@ on: push
 jobs:
   lint:
     name: Lint code
-    runs-on: ubuntu-latest
+    runs-on: golang:1.15.5-buster
 
     steps:
-      - name: Checkout code
+      - name: Install lint
+        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $GOPATH/bin v1.32.2
+      - name: Lint code
         run: make lint
