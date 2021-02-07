@@ -12,5 +12,7 @@ jobs:
 
       - name: LS
         run: ls -la
+      - name: PWD
+        run: pwd
       - name: Lint code
         run: ~/bin/golangci-lint run -e ST1006,SA1029 --path-prefix $(pwd)
