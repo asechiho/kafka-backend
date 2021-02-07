@@ -1,0 +1,14 @@
+name: Linter
+
+on: push
+
+jobs:
+  lint:
+    name: Lint code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install lint
+        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin v1.32.2
+      - name: Lint code
+        run: make lint
