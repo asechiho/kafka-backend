@@ -5,7 +5,7 @@ on: push
 jobs:
   lint:
     name: Lint code
-    runs-on: golang:1.15.5-buster
+    runs-on: ubuntu-latest
 
     steps:
       - name: Install lint
