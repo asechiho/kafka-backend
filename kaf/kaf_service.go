@@ -70,6 +70,7 @@ func (self *KafkaService) ReadMessages(topic string) ([]Message, error) {
 		return nil, err
 	}
 
+	// todo: optimize
 	for _, value := range kafResponse {
 		response = append(response, self.dtoTransformer.ConvertMessageToKafka(value))
 	}
