@@ -1,12 +1,14 @@
 name: Linter
 
-on: push
+on: pull_request
 
 jobs:
   lint:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v2
       - name: Install linter
         run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ~/bin v1.32.2
 
