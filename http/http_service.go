@@ -29,7 +29,7 @@ func (self *HttpService) ListTopics(writer http.ResponseWriter, request *http.Re
 	)
 
 	if message, err = self.kafSvc.ListTopics(); err != nil {
-		log.Printf(err.Error())
+		log.Print(err.Error())
 	}
 
 	if response, err = json.Marshal(message); err != nil {
@@ -43,21 +43,19 @@ func (self *HttpService) ListTopics(writer http.ResponseWriter, request *http.Re
 
 func (self *HttpService) ReadMessages(writer http.ResponseWriter, request *http.Request) {
 	var (
-		message  []kaf.Message
+		messages []kaf.Message
 		response []byte
-		offset   = 0
 		err      error
 	)
 
 	var process = func() ([]byte, error) {
 		var topic = request.URL.Query().Get("topic")
 
-		if message, err = self.kafSvc.ReadMessages(topic, offset); err != nil {
+		if messages, err = self.kafSvc.ReadMessages(topic); err != nil {
 			return nil, err
 		}
 
-		offset = offset + len(message)
-		if response, err = json.Marshal(message); err != nil {
+		if response, err = json.Marshal(messages); err != nil {
 			response = jsonError(err)
 		}
 		return response, nil
@@ -69,7 +67,7 @@ func (self *HttpService) ReadMessages(writer http.ResponseWriter, request *http.
 func handleServerSentEvent(writer http.ResponseWriter, request *http.Request, process func() ([]byte, error)) {
 	conn, _, _, err := ws.UpgradeHTTP(request, writer)
 	if err != nil {
-		log.Printf(err.Error())
+		log.Print(err.Error())
 	}
 
 	go func() {
@@ -90,8 +88,8 @@ func handleServerSentEvent(writer http.ResponseWriter, request *http.Request, pr
 }
 
 func logAndClose(err error, conn net.Conn) {
-	log.Printf(err.Error())
-	log.Printf("Close connection...")
+	log.Print(err.Error())
+	log.Print("Close connection...")
 	conn.Close()
 }
 
