@@ -1,4 +1,4 @@
-package kaf
+package provider
 
 import (
 	"github.com/segmentio/kafka-go"
