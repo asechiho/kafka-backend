@@ -1,24 +1,48 @@
 package ws
 
 import (
-	"bytes"
+	"encoding/json"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"github.com/google/uuid"
+	"github.com/segmentio/kafka-go"
 	log "github.com/sirupsen/logrus"
 	"kafka-backned/config"
+	"kafka-backned/provider"
+	"kafka-backned/store"
 	"net"
 	"net/http"
 )
 
 type WsService struct {
-	configure   *config.Configure `di.inject:"appConfigure"`
+	configure   *config.Configure     `di.inject:"appConfigure"`
+	providerSvc *provider.Provider    `di.inject:"providerService"`
+	storeSvc    *store.RethinkService `di.inject:"storeService"`
 	connections map[uuid.UUID]net.Conn
 }
 
 func (wsService *WsService) Read(writer http.ResponseWriter, request *http.Request) {
+	msgChan := wsService.storeSvc.Messages()
 	wsService.handleSocket(writer, request, func() ([]byte, error) {
-		return bytes.NewBufferString(`{"test": "test"}`).Bytes(), nil
+		message := <-msgChan
+
+		var headers = map[string]string{}
+		_ = json.Unmarshal(message.Headers, &headers)
+
+		var body = map[string]string{}
+		_ = json.Unmarshal(message.Message, &body)
+
+		response, _ := json.Marshal(provider.Message{
+			Topic:       message.Topic,
+			Headers:     headers,
+			Offset:      message.Offset,
+			Partition:   message.Partition,
+			Timestamp:   message.Timestamp,
+			At:          message.At.Format("2021-02-09T22:37:55"),
+			PayloadSize: message.Size,
+			Payload:     body,
+		})
+		return response, nil
 	})
 }
 
@@ -48,6 +72,10 @@ func (wsService *WsService) handleSocket(writer http.ResponseWriter, request *ht
 	}
 
 	go func() {
+		msgChang := make(chan kafka.Message, 1)
+		go wsService.providerSvc.Serve("bookkeeping.domain", msgChang)
+		go wsService.storeSvc.Serve(msgChang)
+
 		for {
 			select {
 			case <-wsService.configure.Context.Done():
@@ -57,12 +85,7 @@ func (wsService *WsService) handleSocket(writer http.ResponseWriter, request *ht
 					logAndClose(err, conn)
 					return
 				}
-			}
 
-			select {
-			case <-wsService.configure.Context.Done():
-				return
-			default:
 				if err = wsutil.WriteServerMessage(conn, ws.OpText, response); err != nil {
 					logAndClose(err, conn)
 					return

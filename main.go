@@ -5,6 +5,8 @@ import (
 	"github.com/goioc/di"
 	log "github.com/sirupsen/logrus"
 	"kafka-backned/config"
+	"kafka-backned/provider"
+	"kafka-backned/store"
 	"kafka-backned/ws"
 	"net/http"
 	"os"
@@ -51,9 +53,14 @@ func initContainers(ctx context.Context) {
 	_, _ = di.RegisterBeanInstance("appConfig", new(config.Config).Defaults())
 	_, _ = di.RegisterBean("appConfigure", reflect.TypeOf((*config.Configure)(nil)))
 	_, _ = di.RegisterBean("wsService", reflect.TypeOf((*ws.WsService)(nil)))
+	_, _ = di.RegisterBean("providerService", reflect.TypeOf((*provider.Provider)(nil)))
+	_, _ = di.RegisterBean("storeService", reflect.TypeOf((*store.RethinkService)(nil)))
 	_ = di.InitializeContainer()
 
 	di.GetInstance("wsService").(*ws.WsService).TerminateConnections()
+	if err := di.GetInstance("storeService").(*store.RethinkService).InitializeContext(); err != nil {
+		log.Fatalf("Db error: %s", err.Error())
+	}
 }
 
 func logInit() {
