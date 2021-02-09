@@ -5,6 +5,7 @@ import (
 	"github.com/heetch/confita"
 	"github.com/heetch/confita/backend/env"
 	"github.com/heetch/confita/backend/flags"
+	log "github.com/sirupsen/logrus"
 )
 
 //todo: add config?
@@ -28,6 +29,7 @@ type Configure struct {
 
 func (configure *Configure) LoadConfig() (cfg *Configure, err error) {
 	if err = confita.NewLoader(flags.NewBackend(), env.NewBackend()).Load(context.Background(), configure.Config); err != nil {
+		log.Warn("Error load config")
 		return configure, err
 	}
 

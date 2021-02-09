@@ -10,11 +10,7 @@ type Provider struct {
 }
 
 func (provider *Provider) Serve(topic string) error {
-	var (
-		reader *kafka.Reader
-	)
-
-	reader = kafka.NewReader(kafka.ReaderConfig{
+	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:  []string{provider.config.Brokers},
 		Topic:    topic,
 		MinBytes: 10e3, // 10KB

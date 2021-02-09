@@ -3,8 +3,9 @@ package main
 import (
 	"context"
 	"github.com/goioc/di"
+	log "github.com/sirupsen/logrus"
 	"kafka-backned/config"
-	"log"
+	"kafka-backned/ws"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,14 +14,23 @@ import (
 )
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	di.RegisterBeanInstance("appConfig", new(config.Config).Defaults())
-	di.RegisterBeanInstance("appContext", ctx)
-	di.RegisterBean("appConfigure", reflect.TypeOf((*config.Configure)(nil)))
-	di.InitializeContainer()
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+		err    error
+	)
+	logInit()
+
+	ctx, cancel = context.WithCancel(context.Background())
+	initContainers(ctx)
+
+	if _, err = di.GetInstance("appConfigure").(*config.Configure).LoadConfig(); err != nil {
+		log.Error(err.Error())
+	}
 
 	go listenTerminate(cancel)
 
+	http.HandleFunc("/", di.GetInstance("wsService").(*ws.WsService).Read)
 	log.Fatal(http.ListenAndServe(":8888", nil))
 }
 
@@ -31,7 +41,23 @@ func listenTerminate(close context.CancelFunc) {
 	)
 	signal.Notify(stopChan, signals...)
 
-	log.Print((<-stopChan).String())
+	log.Debug((<-stopChan).String())
 	close()
 	signal.Stop(stopChan)
+}
+
+func initContainers(ctx context.Context) {
+	_, _ = di.RegisterBeanInstance("appContext", ctx)
+	_, _ = di.RegisterBeanInstance("appConfig", new(config.Config).Defaults())
+	_, _ = di.RegisterBean("appConfigure", reflect.TypeOf((*config.Configure)(nil)))
+	_, _ = di.RegisterBean("wsService", reflect.TypeOf((*ws.WsService)(nil)))
+	_ = di.InitializeContainer()
+
+	di.GetInstance("wsService").(*ws.WsService).TerminateConnections()
+}
+
+func logInit() {
+	log.SetFormatter(&log.JSONFormatter{})
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.InfoLevel)
 }
