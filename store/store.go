@@ -13,7 +13,7 @@ const tableName = "message"
 type Service interface {
 	Topics() <-chan Message
 	Messages() <-chan Message
-	MessagePusher(<-chan Message)
+	Serve(<-chan Message)
 }
 
 type RethinkService struct {
