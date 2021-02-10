@@ -28,6 +28,7 @@ func (provider *Provider) Serve(topic string, c chan kafka.Message) {
 		for {
 			select {
 			case <-provider.config.Context.Done():
+				close(c)
 				return
 			default:
 				if message, err = reader.ReadMessage(provider.config.Context); err != nil {

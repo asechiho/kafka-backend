@@ -41,6 +41,7 @@ func (rethinkService *RethinkService) Messages() <-chan Message {
 			select {
 			case <-rethinkService.configure.Context.Done():
 				log.Info("Close rethinkDb connection")
+				close(msgChan)
 				return
 			default:
 				if cursor, err = rethink.Table(tableName).Changes().Run(session); err != nil {
@@ -67,12 +68,14 @@ func (rethinkService *RethinkService) Serve(c <-chan kafka.Message) {
 			case <-rethinkService.configure.Context.Done():
 				log.Info("Close rethinkDb connection")
 				return
-			case msg := <-c:
+			case msg, ok := <-c:
+				if !ok {
+					return
+				}
 				_, err := rethink.Table(tableName).Insert(New(msg)).RunWrite(session)
 				if err != nil {
 					log.Warnf("Insert message error: %s", err.Error())
 				}
-			default:
 			}
 		}
 	}()

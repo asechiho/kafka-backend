@@ -32,7 +32,7 @@ func main() {
 
 	go listenTerminate(cancel)
 
-	http.HandleFunc("/", di.GetInstance("wsService").(*ws.WsService).Read)
+	http.HandleFunc("/", di.GetInstance("wsService").(*ws.WsService).Serve)
 	log.Fatal(http.ListenAndServe(":8888", nil))
 }
 

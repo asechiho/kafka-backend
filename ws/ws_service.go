@@ -21,31 +21,6 @@ type WsService struct {
 	connections map[uuid.UUID]net.Conn
 }
 
-func (wsService *WsService) Read(writer http.ResponseWriter, request *http.Request) {
-	msgChan := wsService.storeSvc.Messages()
-	wsService.handleSocket(writer, request, func() ([]byte, error) {
-		message := <-msgChan
-
-		var headers = map[string]string{}
-		_ = json.Unmarshal(message.Headers, &headers)
-
-		var body = map[string]string{}
-		_ = json.Unmarshal(message.Message, &body)
-
-		response, _ := json.Marshal(provider.Message{
-			Topic:       message.Topic,
-			Headers:     headers,
-			Offset:      message.Offset,
-			Partition:   message.Partition,
-			Timestamp:   message.Timestamp,
-			At:          message.At.Format("2021-02-09T22:37:55"),
-			PayloadSize: message.Size,
-			Payload:     body,
-		})
-		return response, nil
-	})
-}
-
 func (wsService *WsService) TerminateConnections() {
 	go func() {
 		<-wsService.configure.Context.Done()
@@ -58,11 +33,10 @@ func (wsService *WsService) TerminateConnections() {
 	}()
 }
 
-func (wsService *WsService) handleSocket(writer http.ResponseWriter, request *http.Request, process func() ([]byte, error)) {
+func (wsService *WsService) Serve(writer http.ResponseWriter, request *http.Request) {
 	var (
-		conn     net.Conn
-		response []byte
-		err      error
+		conn net.Conn
+		err  error
 	)
 
 	if conn, err = wsService.initConnection(writer, request); err != nil {
@@ -72,26 +46,14 @@ func (wsService *WsService) handleSocket(writer http.ResponseWriter, request *ht
 	}
 
 	go func() {
+		msgChan := wsService.storeSvc.Messages()
+		wsCommandChan := wsService.handleInput(conn)
+		go wsService.handleOutput(conn, wsCommandChan, msgChan)
+
 		msgChang := make(chan kafka.Message, 1)
+		//todo: delete topic
 		go wsService.providerSvc.Serve("bookkeeping.domain", msgChang)
 		go wsService.storeSvc.Serve(msgChang)
-
-		for {
-			select {
-			case <-wsService.configure.Context.Done():
-				return
-			default:
-				if response, err = process(); err != nil {
-					logAndClose(err, conn)
-					return
-				}
-
-				if err = wsutil.WriteServerMessage(conn, ws.OpText, response); err != nil {
-					logAndClose(err, conn)
-					return
-				}
-			}
-		}
 	}()
 }
 
@@ -118,4 +80,69 @@ func (wsService *WsService) initConnection(writer http.ResponseWriter, request *
 	wsService.connections[id] = conn
 
 	return conn, nil
+}
+
+func (wsService *WsService) handleInput(conn net.Conn) <-chan WsCommand {
+	wsCommandChan := make(chan WsCommand)
+	go func() {
+		for {
+			select {
+			case <-wsService.configure.Context.Done():
+				close(wsCommandChan)
+				return
+			default:
+				msg, _, _ := wsutil.ReadClientData(conn)
+				wsCommandChan <- ValueOf(string(msg))
+			}
+		}
+	}()
+
+	return wsCommandChan
+}
+
+func (wsService *WsService) handleOutput(conn net.Conn, wsCommandChan <-chan WsCommand, msgChan <-chan store.Message) {
+	var (
+		response []byte
+		cmd      = Messages
+		ok       bool
+	)
+	for {
+		select {
+		case <-wsService.configure.Context.Done():
+			return
+		case cmd, ok = <-wsCommandChan:
+			if !ok {
+				return
+			}
+		case message := <-msgChan:
+			switch cmd {
+			case Topics:
+				response, _ = json.Marshal(provider.Message{
+					Topic: message.Topic,
+				})
+			case Messages:
+				var headers = map[string]string{}
+				_ = json.Unmarshal(message.Headers, &headers)
+
+				var body = map[string]string{}
+				_ = json.Unmarshal(message.Message, &body)
+
+				response, _ = json.Marshal(provider.Message{
+					Topic:       message.Topic,
+					Headers:     headers,
+					Offset:      message.Offset,
+					Partition:   message.Partition,
+					Timestamp:   message.Timestamp,
+					At:          message.At.Format("2021-02-09T22:37:55"),
+					PayloadSize: message.Size,
+					Payload:     body,
+				})
+			}
+
+			if err := wsutil.WriteServerMessage(conn, ws.OpText, response); err != nil {
+				logAndClose(err, conn)
+				return
+			}
+		}
+	}
 }
