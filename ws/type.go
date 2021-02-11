@@ -1,19 +1,59 @@
 package ws
 
-type WsCommand int
+import (
+	"encoding/json"
+	"fmt"
+	"kafka-backned/provider"
+)
+
+type WsCommandType int
 
 const (
-	Topics WsCommand = iota
+	Topics WsCommandType = iota
 	Messages
 )
 
-func (d WsCommand) String() string {
-	return [...]string{"topics", "messages"}[d]
+var WsCommandTypeToString = map[WsCommandType]string{
+	Topics:   "topics",
+	Messages: "messages",
 }
 
-func ValueOf(value string) WsCommand {
-	if value == "topics" {
-		return Topics
+var WsCommandTypeFromString = map[string]WsCommandType{
+	"topics":   Topics,
+	"messages": Messages,
+}
+
+func (cmd WsCommandType) String() string {
+	if s, ok := WsCommandTypeToString[cmd]; ok {
+		return s
 	}
-	return Messages
+	return "unknown"
+}
+
+func (cmd WsCommandType) MarshalJSON() ([]byte, error) {
+	if s, ok := WsCommandTypeToString[cmd]; ok {
+		return json.Marshal(s)
+	}
+	return nil, fmt.Errorf("unknown type %d", cmd)
+}
+
+func (cmd *WsCommandType) UnmarshalJSON(value []byte) error {
+	var s string
+	if err := json.Unmarshal(value, &s); err != nil {
+		return err
+	}
+
+	var v WsCommandType
+	var ok bool
+	if v, ok = WsCommandTypeFromString[s]; !ok {
+		return fmt.Errorf("unknown type %s", s)
+	}
+
+	*cmd = v
+	return nil
+}
+
+type MessageRequest struct {
+	Command WsCommandType    `json:"command"`
+	Message provider.Message `json:"message,omitempty"`
 }

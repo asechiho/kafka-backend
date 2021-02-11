@@ -49,11 +49,6 @@ func (wsService *WsService) Serve(writer http.ResponseWriter, request *http.Requ
 		msgChan := wsService.storeSvc.Messages()
 		wsCommandChan := wsService.handleInput(conn)
 		go wsService.handleOutput(conn, wsCommandChan, msgChan)
-
-		msgChang := make(chan kafka.Message, 1)
-		//todo: delete topic
-		go wsService.providerSvc.Serve("bookkeeping.domain", msgChang)
-		go wsService.storeSvc.Serve(msgChang)
 	}()
 }
 
@@ -77,13 +72,17 @@ func (wsService *WsService) initConnection(writer http.ResponseWriter, request *
 	if wsService.connections == nil {
 		wsService.connections = map[uuid.UUID]net.Conn{}
 	}
-	wsService.connections[id] = conn
 
+	wsService.connections[id] = conn
 	return conn, nil
 }
 
-func (wsService *WsService) handleInput(conn net.Conn) <-chan WsCommand {
-	wsCommandChan := make(chan WsCommand)
+func (wsService *WsService) handleInput(conn net.Conn) <-chan MessageRequest {
+	var (
+		wsCommandChan = make(chan MessageRequest)
+		request       MessageRequest
+	)
+
 	go func() {
 		for {
 			select {
@@ -92,7 +91,10 @@ func (wsService *WsService) handleInput(conn net.Conn) <-chan WsCommand {
 				return
 			default:
 				msg, _, _ := wsutil.ReadClientData(conn)
-				wsCommandChan <- ValueOf(string(msg))
+				log.Info(string(msg))
+
+				_ = json.Unmarshal(msg, &request)
+				wsCommandChan <- request
 			}
 		}
 	}()
@@ -100,44 +102,60 @@ func (wsService *WsService) handleInput(conn net.Conn) <-chan WsCommand {
 	return wsCommandChan
 }
 
-func (wsService *WsService) handleOutput(conn net.Conn, wsCommandChan <-chan WsCommand, msgChan <-chan store.Message) {
+func (wsService *WsService) handleOutput(conn net.Conn, wsCommandChan <-chan MessageRequest, msgChan <-chan store.Message) {
 	var (
 		response []byte
-		cmd      = Messages
+		cmd      = MessageRequest{}
 		ok       bool
 	)
+
+	wsCmdChan := make(chan kafka.Message, 1)
+	changeTopicChan := make(chan string, 1)
+	requestChan := make(chan string, 1)
+
+	go wsService.providerSvc.Serve(wsCmdChan, changeTopicChan, requestChan)
+	go wsService.storeSvc.Serve(wsCmdChan)
+
 	for {
 		select {
 		case <-wsService.configure.Context.Done():
+			close(changeTopicChan)
 			return
+
 		case cmd, ok = <-wsCommandChan:
 			if !ok {
 				return
 			}
-		case message := <-msgChan:
-			switch cmd {
+
+			switch cmd.Command {
 			case Topics:
-				response, _ = json.Marshal(provider.Message{
-					Topic: message.Topic,
-				})
+				requestChan <- (&cmd.Command).String()
 			case Messages:
-				var headers = map[string]string{}
-				_ = json.Unmarshal(message.Headers, &headers)
-
-				var body = map[string]string{}
-				_ = json.Unmarshal(message.Message, &body)
-
-				response, _ = json.Marshal(provider.Message{
-					Topic:       message.Topic,
-					Headers:     headers,
-					Offset:      message.Offset,
-					Partition:   message.Partition,
-					Timestamp:   message.Timestamp,
-					At:          message.At.Format("2021-02-09T22:37:55"),
-					PayloadSize: message.Size,
-					Payload:     body,
-				})
+				changeTopicChan <- cmd.Message.Topic
 			}
+
+		case message, ok := <-msgChan:
+			if !ok {
+				return
+			}
+
+			//todo:
+			var headers = map[string]string{}
+			_ = json.Unmarshal(message.Headers, &headers)
+
+			var body = map[string]string{}
+			_ = json.Unmarshal(message.Message, &body)
+
+			response, _ = json.Marshal(provider.Message{
+				Topic:       message.Topic,
+				Headers:     headers,
+				Offset:      message.Offset,
+				Partition:   message.Partition,
+				Timestamp:   message.Timestamp,
+				At:          message.At.Format("2021-02-09T22:37:55"),
+				PayloadSize: message.Size,
+				Payload:     body,
+			})
 
 			if err := wsutil.WriteServerMessage(conn, ws.OpText, response); err != nil {
 				logAndClose(err, conn)
