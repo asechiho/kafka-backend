@@ -128,10 +128,10 @@ func (wsService *WsService) handleOutput(conn net.Conn, wsCommandChan <-chan Mes
 			}
 
 			switch cmd.Command {
-			case Topics:
+			case WsCommandTypeTopics:
 				requestChan <- (&cmd.Command).String()
-			case Messages:
-				changeTopicChan <- cmd.Message.Topic
+			case WsCommandTypeMessages:
+				changeTopicChan <- cmd.Filter.Value
 			}
 
 		case message, ok := <-msgChan:
