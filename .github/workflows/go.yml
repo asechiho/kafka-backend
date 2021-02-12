@@ -24,8 +24,8 @@ jobs:
       - name: Generate enum
         run: go generate ./..
 
-      - name: lS
-        run: pwd
+      - name: Get path
+        run: export WORK=$(pwd)
 
       - name: Lint code
-        run: ~/bin/golangci-lint run -e ST1006,SA1029 --path-prefix /
+        run: ~/bin/golangci-lint run -e ST1006,SA1029 --path-prefix $WORK
