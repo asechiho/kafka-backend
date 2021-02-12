@@ -8,8 +8,6 @@ jobs:
 
     container:
       image: golang:1.15.8-buster
-      env:
-        WORKSPACE: $GITHUB_WORKSPACE
 
     steps:
       - name: Checkout
