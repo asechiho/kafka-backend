@@ -24,5 +24,8 @@ jobs:
       - name: Generate enum
         run: go generate ./..
 
+      - name: lS
+        run: ls -la
+
       - name: Lint code
         run: ~/bin/golangci-lint run -e ST1006,SA1029 --path-prefix $WORKSPACE
