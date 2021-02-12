@@ -25,7 +25,7 @@ jobs:
         run: go generate ./..
 
       - name: lS
-        run: ls -la
+        run: pwd
 
       - name: Lint code
-        run: ~/bin/golangci-lint run -e ST1006,SA1029 --path-prefix $WORKSPACE
+        run: ~/bin/golangci-lint run -e ST1006,SA1029 --path-prefix /
