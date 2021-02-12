@@ -113,8 +113,8 @@ func (wsService *WsService) handleOutput(conn net.Conn, wsCommandChan <-chan Mes
 	changeTopicChan := make(chan string, 1)
 	requestChan := make(chan string, 1)
 
-	go wsService.providerSvc.Serve(wsCmdChan, changeTopicChan, requestChan)
-	go wsService.storeSvc.Serve(wsCmdChan)
+	wsService.providerSvc.Serve(wsCmdChan, changeTopicChan, requestChan)
+	wsService.storeSvc.Serve(wsCmdChan)
 
 	for {
 		select {

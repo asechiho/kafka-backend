@@ -11,6 +11,11 @@ type Provider struct {
 }
 
 func (provider *Provider) Serve(c chan kafka.Message, topicChan <-chan string, requestChan <-chan string) {
+	go provider.Topics(c, requestChan) //todo: remove
+	go provider.Messages(c, topicChan)
+}
+
+func (provider *Provider) Messages(c chan kafka.Message, topicChan <-chan string) {
 	var (
 		message kafka.Message
 		err     error
@@ -22,14 +27,11 @@ func (provider *Provider) Serve(c chan kafka.Message, topicChan <-chan string, r
 		for {
 			select {
 			case <-provider.config.Context.Done():
-				reader.Close()
+				if reader != nil {
+					reader.Close()
+				}
 				close(c)
 				return
-
-			case request := <-requestChan:
-				if request == "topics" {
-					provider.Topics(c)
-				}
 
 			case topicName := <-topicChan:
 				if reader == nil {
@@ -65,25 +67,36 @@ func (provider *Provider) Serve(c chan kafka.Message, topicChan <-chan string, r
 	}()
 }
 
-func (provider *Provider) Topics(c chan kafka.Message) {
+func (provider *Provider) Topics(c chan kafka.Message, requestChan <-chan string) {
 	conn, err := kafka.Dial("tcp", provider.config.Config.Brokers)
 	if err != nil {
 		log.Warn(err.Error())
 	}
-	defer conn.Close()
 
-	partitions, err := conn.ReadPartitions()
-	if err != nil {
-		log.Warn(err.Error())
+	for {
+		select {
+		case <-provider.config.Context.Done():
+			conn.Close()
+			return
+		case request := <-requestChan:
+			if request == "topics" {
+
+				partitions, err := conn.ReadPartitions()
+				if err != nil {
+					log.Warn(err.Error())
+				}
+
+				for _, v := range partitions {
+					if v.Topic == "__consumer_offsets" {
+						continue
+					}
+
+					c <- kafka.Message{
+						Topic: v.Topic,
+					}
+				}
+			}
+		}
 	}
 
-	for _, v := range partitions {
-		if v.Topic == "__consumer_offsets" {
-			continue
-		}
-
-		c <- kafka.Message{
-			Topic: v.Topic,
-		}
-	}
 }
