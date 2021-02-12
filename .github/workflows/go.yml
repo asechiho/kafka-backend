@@ -5,8 +5,9 @@ on: pull_request
 jobs:
   lint:
     runs-on: ubuntu-latest
-      container:
-        image: golang:1.15.8-buster
+
+    container:
+      image: golang:1.15.8-buster
 
     steps:
       - name: Checkout
