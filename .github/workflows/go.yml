@@ -8,6 +8,8 @@ jobs:
 
     container:
       image: golang:1.15.8-buster
+      env:
+        WORKSPACE: $GITHUB_WORKSPACE
 
     steps:
       - name: Checkout
@@ -23,4 +25,4 @@ jobs:
         run: go generate ./..
 
       - name: Lint code
-        run: ~/bin/golangci-lint run -e ST1006,SA1029 --path-prefix $(PWD)
+        run: ~/bin/golangci-lint run -e ST1006,SA1029 --path-prefix $WORKSPACE
