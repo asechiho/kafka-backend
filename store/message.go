@@ -3,8 +3,9 @@ package store
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/segmentio/kafka-go"
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
+	"strconv"
 	"time"
 )
 
@@ -12,7 +13,7 @@ type Message struct {
 	Topic     string    `rethinkdb:"topic"`
 	Headers   []byte    `rethinkdb:"headers"`
 	Offset    int64     `rethinkdb:"offset"`
-	Partition int       `rethinkdb:"partition"`
+	Partition int32     `rethinkdb:"partition"`
 	Timestamp int64     `rethinkdb:"timestamp"`
 	At        time.Time `rethinkdb:"at"`
 	Size      int       `rethinkdb:"size"`
@@ -27,6 +28,7 @@ type Changes struct {
 func New(msg kafka.Message) Message {
 	var (
 		dbHeaders []byte
+		offset    int64
 		err       error
 	)
 
@@ -40,13 +42,18 @@ func New(msg kafka.Message) Message {
 		dbHeaders = []byte(`{}`)
 	}
 
+	if offset, err = strconv.ParseInt(msg.TopicPartition.Offset.String(), 10, 64); err != nil {
+		log.Warnf("Offset parse error: %s", err.Error())
+		offset = 0
+	}
+
 	return Message{
-		Topic:     msg.Topic,
+		Topic:     *msg.TopicPartition.Topic,
 		Headers:   dbHeaders,
-		Offset:    msg.Offset,
-		Partition: msg.Partition,
-		Timestamp: msg.Time.Unix(),
-		At:        msg.Time,
+		Offset:    offset,
+		Partition: msg.TopicPartition.Partition,
+		Timestamp: msg.Timestamp.Unix(),
+		At:        msg.Timestamp,
 		Size:      len(msg.Value),
 		Message:   bytes.NewBufferString(string(msg.Value)).Bytes(),
 	}

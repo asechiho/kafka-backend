@@ -5,7 +5,6 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"github.com/google/uuid"
-	"github.com/segmentio/kafka-go"
 	log "github.com/sirupsen/logrus"
 	"kafka-backned/config"
 	"kafka-backned/provider"
@@ -15,10 +14,12 @@ import (
 )
 
 type WsService struct {
-	configure   *config.Configure     `di.inject:"appConfigure"`
-	providerSvc *provider.Provider    `di.inject:"providerService"`
-	storeSvc    *store.RethinkService `di.inject:"storeService"`
-	connections map[uuid.UUID]net.Conn
+	configure    *config.Configure     `di.inject:"appConfigure"`
+	providerSvc  *provider.Provider    `di.inject:"providerService"`
+	storeSvc     *store.RethinkService `di.inject:"storeService"`
+	connections  map[uuid.UUID]net.Conn
+	done         chan interface{}
+	storeMsgChan chan store.Message
 }
 
 func (wsService *WsService) TerminateConnections() {
@@ -35,36 +36,49 @@ func (wsService *WsService) TerminateConnections() {
 
 func (wsService *WsService) Serve(writer http.ResponseWriter, request *http.Request) {
 	var (
-		conn net.Conn
-		err  error
+		id  uuid.UUID
+		err error
 	)
 
-	if conn, err = wsService.initConnection(writer, request); err != nil {
+	if len(wsService.connections) == 0 {
+		wsService.done = make(chan interface{})
+		wsService.storeMsgChan = make(chan store.Message)
+
+		wsService.providerSvc.Serve(wsService.storeMsgChan, wsService.done)
+		wsService.storeSvc.Serve(wsService.storeMsgChan)
+	}
+
+	if id, err = wsService.initConnection(writer, request); err != nil {
 		log.Warnf("Error init connection for '%s': %s", request.URL, err.Error())
 		log.Warn(err.Error())
 		return
 	}
 
 	go func() {
-		msgChan := wsService.storeSvc.Messages()
-		wsCommandChan := wsService.handleInput(conn)
-		go wsService.handleOutput(conn, wsCommandChan, msgChan)
+		wsCmdReqChan := wsService.handleInput(id)
+		wsService.handleOutput(id, wsCmdReqChan)
 	}()
 }
 
-func logAndClose(err error, conn net.Conn) {
+func (wsService *WsService) logAndClose(err error, id uuid.UUID) {
 	log.Warn(err.Error())
 	log.Info("Close connection...")
-	conn.Close()
+	wsService.getConnection(id).Close()
+	delete(wsService.connections, id)
+
+	if len(wsService.connections) == 0 {
+		wsService.done <- true
+		close(wsService.storeMsgChan)
+	}
 }
 
-func (wsService *WsService) initConnection(writer http.ResponseWriter, request *http.Request) (net.Conn, error) {
+func (wsService *WsService) initConnection(writer http.ResponseWriter, request *http.Request) (uuid.UUID, error) {
 	log.Debugf("Upgrade connection for request: %s", request.RequestURI)
 
 	conn, _, _, err := ws.UpgradeHTTP(request, writer)
 	if err != nil {
 		log.Error("Upgrade connection error")
-		return nil, err
+		return uuid.UUID{}, err
 	}
 
 	id := uuid.New()
@@ -74,10 +88,10 @@ func (wsService *WsService) initConnection(writer http.ResponseWriter, request *
 	}
 
 	wsService.connections[id] = conn
-	return conn, nil
+	return id, nil
 }
 
-func (wsService *WsService) handleInput(conn net.Conn) <-chan MessageRequest {
+func (wsService *WsService) handleInput(id uuid.UUID) <-chan MessageRequest {
 	var (
 		wsCommandChan = make(chan MessageRequest)
 		request       MessageRequest
@@ -90,8 +104,8 @@ func (wsService *WsService) handleInput(conn net.Conn) <-chan MessageRequest {
 				close(wsCommandChan)
 				return
 			default:
-				msg, _, _ := wsutil.ReadClientData(conn)
-				log.Info(string(msg))
+				msg, _, _ := wsutil.ReadClientData(wsService.getConnection(id))
+				log.Infof("Get msg from client '%s': %s", id, string(msg))
 
 				_ = json.Unmarshal(msg, &request)
 				wsCommandChan <- request
@@ -102,65 +116,71 @@ func (wsService *WsService) handleInput(conn net.Conn) <-chan MessageRequest {
 	return wsCommandChan
 }
 
-func (wsService *WsService) handleOutput(conn net.Conn, wsCommandChan <-chan MessageRequest, msgChan <-chan store.Message) {
-	var (
-		response []byte
-		cmd      = MessageRequest{}
-		ok       bool
-	)
+//storeMsgChan - ok (get msg chan for socket)
+//wsCmdRequestChan - ok (socket requests)
+func (wsService *WsService) handleOutput(id uuid.UUID, wsCmdReqChan <-chan MessageRequest) {
+	go func() {
+		startTopicChan := make(chan interface{}, 1)
+		filterChan := make(chan map[string]interface{}, 1)
 
-	wsCmdChan := make(chan kafka.Message, 1)
-	changeTopicChan := make(chan string, 1)
-	requestChan := make(chan string, 1)
+		wsMsgChan := wsService.storeSvc.Messages(filterChan)
+		wsTopicChan := wsService.storeSvc.Topics(startTopicChan)
 
-	wsService.providerSvc.Serve(wsCmdChan, changeTopicChan, requestChan)
-	wsService.storeSvc.Serve(wsCmdChan)
-
-	for {
-		select {
-		case <-wsService.configure.Context.Done():
-			close(changeTopicChan)
-			return
-
-		case cmd, ok = <-wsCommandChan:
-			if !ok {
+		for {
+			select {
+			case <-wsService.configure.Context.Done():
 				return
-			}
 
-			switch cmd.Command {
-			case WsCommandTypeTopics:
-				requestChan <- (&cmd.Command).String()
-			case WsCommandTypeMessages:
-				changeTopicChan <- cmd.Filter.Value
-			}
+			case msg, ok := <-wsTopicChan:
+				if !ok {
+					log.Debug("Topic channel was closed")
+					return
+				}
 
-		case message, ok := <-msgChan:
-			if !ok {
-				return
-			}
+				log.Debugf("Get topics from channel: %s", toJson(msg))
+				if err := wsutil.WriteServerMessage(wsService.getConnection(id), ws.OpText, toJson(ConvertToWsTopic(msg))); err != nil {
+					wsService.logAndClose(err, id)
+					return
+				}
 
-			//todo:
-			var headers = map[string]string{}
-			_ = json.Unmarshal(message.Headers, &headers)
+			case message, ok := <-wsMsgChan:
+				if !ok {
+					log.Debug("Message channel was closed")
+					return
+				}
 
-			var body = map[string]string{}
-			_ = json.Unmarshal(message.Message, &body)
+				log.Debugf("Get message from channel: %s", toJson(message))
+				if err := wsutil.WriteServerMessage(wsService.getConnection(id), ws.OpText, toJson(ConvertToWsMessage(message))); err != nil {
+					wsService.logAndClose(err, id)
+					return
+				}
 
-			response, _ = json.Marshal(provider.Message{
-				Topic:       message.Topic,
-				Headers:     headers,
-				Offset:      message.Offset,
-				Partition:   message.Partition,
-				Timestamp:   message.Timestamp,
-				At:          message.At.Format("2021-02-09T22:37:55"),
-				PayloadSize: message.Size,
-				Payload:     body,
-			})
+			case cmd, ok := <-wsCmdReqChan:
+				if !ok {
+					log.Debug("Ws Command Request channel was closed")
+					return
+				}
+				log.Debugf("Ws Command Request channel has msg: %s", cmd)
 
-			if err := wsutil.WriteServerMessage(conn, ws.OpText, response); err != nil {
-				logAndClose(err, conn)
-				return
+				switch cmd.Command {
+				case WsCommandTypeTopics:
+					startTopicChan <- 0
+				case WsCommandTypeMessages:
+					filterChan <- EvaluateFilter(cmd)
+				}
 			}
 		}
+	}()
+}
+
+func (wsService *WsService) getConnection(id uuid.UUID) net.Conn {
+	return wsService.connections[id]
+}
+
+func toJson(message interface{}) []byte {
+	res, err := json.Marshal(message)
+	if err != nil {
+		return []byte("")
 	}
+	return res
 }

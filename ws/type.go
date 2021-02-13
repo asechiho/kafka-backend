@@ -24,6 +24,25 @@ type Filter struct {
 }
 
 type MessageRequest struct {
-	Command WsCommandType `json:"command"`
-	Filter  Filter        `json:"filter,omitempty"`
+	Command WsCommandType `json:"request"`
+	Filters []Filter      `json:"filters,omitempty"`
+}
+
+type Message struct {
+	Topic       string            `json:"topic"`
+	Headers     map[string]string `json:"headers"`
+	Offset      int64             `json:"offset"`
+	Partition   int32             `json:"partition"`
+	Timestamp   int64             `json:"timestamp"`
+	At          string            `json:"at"`
+	PayloadSize int               `json:"payloadSize"`
+	Payload     map[string]string `json:"message"`
+}
+
+type Topic struct {
+	Messages Message `json:"topic"`
+}
+
+type Messages struct {
+	Message Message `json:"message"`
 }
