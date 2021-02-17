@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	rethink "gopkg.in/rethinkdb/rethinkdb-go.v6"
 	"kafka-backned/config"
@@ -19,37 +21,46 @@ type Service interface {
 }
 
 type RethinkService struct {
-	configure   *config.Configure `di.inject:"appConfigure"`
-	isDbCreated bool
+	configure      *config.Configure `di.inject:"appConfigure"`
+	connectionPool map[uuid.UUID]*rethink.Session
 }
 
-func (rethinkService *RethinkService) Topics(startChan <-chan interface{}) <-chan Message {
+func (rethinkService *RethinkService) Topics(socketContext context.Context, startChan <-chan interface{}) <-chan Message {
 	var (
 		cursor  *rethink.Cursor
 		err     error
 		msgChan = make(chan Message, 1)
-		msg     Message
+		topic   string
 	)
 
 	go func() {
-		session := rethinkService.connect()
-		defer session.Close()
+		id := rethinkService.connect(true)
+		defer rethinkService.close(id)
+
+		termTopics := rethink.Table(tableName).Distinct(rethink.DistinctOpts{
+			Index: index,
+		})
 
 		for {
 			select {
-			case <-rethinkService.configure.Context.Done():
-				log.Info("Close rethinkDb connection")
+			case <-socketContext.Done():
+				log.Info("Close rethinkDb connection for read topics")
 				close(msgChan)
 				return
+
+			case <-rethinkService.configure.GlobalContext.Done():
+				log.Info("Close rethinkDb connection for read topics")
+				close(msgChan)
+				return
+
+				//todo: refactor
 			case <-startChan:
-				//todo:
-				log.Debug("Start topics channel")
-				if cursor, err = rethink.Table(tableName).Pluck(index).Distinct().Run(session); err != nil {
+				if cursor, err = termTopics.Run(rethinkService.connectionPool[id]); err != nil {
 					log.Error(err.Error())
 				}
 
-				for cursor.Next(&msg) {
-					msgChan <- msg
+				for cursor.Next(&topic) {
+					msgChan <- Message{Topic: topic}
 				}
 			}
 		}
@@ -58,38 +69,49 @@ func (rethinkService *RethinkService) Topics(startChan <-chan interface{}) <-cha
 	return msgChan
 }
 
-func (rethinkService *RethinkService) Messages(filterChan <-chan map[string]interface{}) <-chan Message {
+func (rethinkService *RethinkService) Messages(socketContext context.Context, filterChan <-chan func(message Message) bool) <-chan Message {
 	var (
-		cursor  *rethink.Cursor
-		err     error
-		changes Changes
-		msgChan = make(chan Message, 1)
+		cursor    *rethink.Cursor
+		err       error
+		changes   Changes
+		msgChan   = make(chan Message, 1)
+		curFilter func(message Message) bool
 	)
 
 	go func() {
 		term := rethink.Table(tableName).Changes().Limit(1)
-		session := rethinkService.connect()
-		defer session.Close()
+		id := rethinkService.connect(true)
+		defer rethinkService.close(id)
+
+		go rethinkService.getLastMessages(id, rethink.Table(tableName).OrderBy(rethink.Desc("timestamp")), msgChan, nil)
 
 		for {
 			select {
-			case <-rethinkService.configure.Context.Done():
-				log.Info("Close rethinkDb connection")
+			case <-socketContext.Done():
+				log.Info("Close rethinkDb connection for read messages")
+				close(msgChan)
+				return
+
+			case <-rethinkService.configure.GlobalContext.Done():
+				log.Info("Close rethinkDb connection for read messages")
 				close(msgChan)
 				return
 
 			case curFilter := <-filterChan:
 				//todo: filter implement. Changes ?
 				log.Debugf("get filters: %s", curFilter)
-				term = rethink.Table(tableName).Changes().Limit(1).Filter(curFilter)
+				rethinkService.getLastMessages(id, rethink.Table(tableName).OrderBy(rethink.Desc("timestamp")), msgChan, curFilter)
 
 			default:
-				if cursor, err = term.Run(session); err != nil {
+				if cursor, err = term.Run(rethinkService.connectionPool[id]); err != nil {
 					log.Errorf("RethinkDb get changes error: %s", err.Error())
+					continue
 				}
 
 				for cursor.Next(&changes) {
-					msgChan <- changes.NewValue
+					if curFilter == nil || curFilter(changes.NewValue) {
+						msgChan <- changes.NewValue
+					}
 				}
 			}
 		}
@@ -98,21 +120,26 @@ func (rethinkService *RethinkService) Messages(filterChan <-chan map[string]inte
 	return msgChan
 }
 
-func (rethinkService *RethinkService) Serve(c <-chan Message) {
+func (rethinkService *RethinkService) Serve(ctx context.Context, storeMsgChan <-chan Message) {
 	go func() {
-		session := rethinkService.connect()
-		defer session.Close()
+		id := rethinkService.connect(true)
+		defer rethinkService.close(id)
 
 		for {
 			select {
-			case <-rethinkService.configure.Context.Done():
+			case <-ctx.Done():
+				return
+
+			case <-rethinkService.configure.GlobalContext.Done():
 				log.Info("Close rethinkDb connection")
 				return
-			case msg, ok := <-c:
+
+			case msg, ok := <-storeMsgChan:
 				if !ok {
 					return
 				}
-				_, err := rethink.Table(tableName).Insert(msg).RunWrite(session)
+
+				err := rethink.Table(tableName).Insert(msg).Exec(rethinkService.connectionPool[id])
 				if err != nil {
 					log.Warnf("Insert message error: %s", err.Error())
 				}
@@ -121,54 +148,26 @@ func (rethinkService *RethinkService) Serve(c <-chan Message) {
 	}()
 }
 
-func (rethinkService *RethinkService) InitializeContext() error {
-	var (
-		isContains bool
-		dbResponse *rethink.Cursor
-		err        error
-		session    *rethink.Session
-	)
-	session = rethinkService.connect()
+func (rethinkService *RethinkService) InitializeContext() (err error) {
+	// Create DB
+	rethinkService.connectionPool = make(map[uuid.UUID]*rethink.Session)
 
-	if dbResponse, err = rethink.DBList().Contains(dbName).Run(session); err != nil {
-		return err
-	}
+	id := rethinkService.connect(false)
+	err = rethinkService.executeCreateIfAbsent(rethink.DBList().Contains(dbName), rethink.DBCreate(dbName), id)
+	rethinkService.close(id)
 
-	dbResponse.Next(&isContains)
-	if !isContains {
-		if err = rethink.DBCreate(dbName).Exec(session); err != nil {
-			return err
-		}
-	}
-	rethinkService.isDbCreated = true
+	// Create Table And Index
+	id = rethinkService.connect(true)
+	err = rethinkService.executeCreateIfAbsent(rethink.TableList().Contains(tableName), rethink.TableCreate(tableName), id)
+	err = rethinkService.executeCreateIfAbsent(rethink.Table(tableName).IndexList().Contains(index), rethink.Table(tableName).IndexCreate(index), id)
 
-	if dbResponse, err = rethink.DB(dbName).TableList().Contains(tableName).Run(session); err != nil {
-		return err
-	}
+	_ = rethink.Table(tableName).IndexWait().Exec(rethinkService.connectionPool[id])
+	rethinkService.close(id)
 
-	dbResponse.Next(&isContains)
-	if !isContains {
-		if err = rethink.DB(dbName).TableCreate(tableName).Exec(session); err != nil {
-			return err
-		}
-	}
-
-	if dbResponse, err = rethink.DB(dbName).Table(tableName).IndexList().Contains(index).Run(session); err != nil {
-		return err
-	}
-
-	dbResponse.Next(&isContains)
-	if !isContains {
-		if err = rethink.DB(dbName).Table(tableName).IndexCreate(index).Exec(session); err != nil {
-			return err
-		}
-		_ = rethink.DB(dbName).Table(tableName).IndexWait().Exec(session)
-	}
-
-	return nil
+	return
 }
 
-func (rethinkService *RethinkService) connect() *rethink.Session {
+func (rethinkService *RethinkService) connect(isDbCreated bool) uuid.UUID {
 	var (
 		session *rethink.Session
 		err     error
@@ -178,7 +177,7 @@ func (rethinkService *RethinkService) connect() *rethink.Session {
 		Address: rethinkService.configure.Config.DbAddress,
 	}
 
-	if rethinkService.isDbCreated {
+	if isDbCreated {
 		connectOpts.Database = dbName
 	}
 
@@ -186,5 +185,49 @@ func (rethinkService *RethinkService) connect() *rethink.Session {
 		log.Fatalf("Open rethinkDb connection error: %s", err.Error())
 	}
 
-	return session
+	id := uuid.New()
+	rethinkService.connectionPool[id] = session
+
+	return id
+}
+
+func (rethinkService *RethinkService) close(id uuid.UUID) {
+	rethinkService.connectionPool[id].Close()
+	delete(rethinkService.connectionPool, id)
+}
+
+func (rethinkService *RethinkService) executeCreateIfAbsent(listTerm rethink.Term, createTerm rethink.Term, id uuid.UUID) error {
+	var (
+		isContains bool
+		dbResponse *rethink.Cursor
+		err        error
+	)
+
+	if dbResponse, err = listTerm.Run(rethinkService.connectionPool[id]); err != nil {
+		return err
+	}
+
+	dbResponse.Next(&isContains)
+	if !isContains {
+		if err = createTerm.Exec(rethinkService.connectionPool[id]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, term rethink.Term, msgChan chan Message, filter func(message Message) bool) {
+	cursor, err := term.Limit(20).Run(rethinkService.connectionPool[id])
+	if err != nil {
+		log.Warnf("Get desc error: %s", err.Error())
+		return
+	}
+
+	var msg Message
+	for cursor.Next(&msg) {
+		if filter == nil || filter(msg) {
+			msgChan <- msg
+		}
+	}
 }

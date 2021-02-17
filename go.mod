@@ -12,7 +12,6 @@ require (
 	github.com/heetch/confita v0.9.2
 	github.com/kr/pretty v0.2.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/prometheus/common v0.2.0
 	github.com/sirupsen/logrus v1.7.0
 	golang.org/x/crypto v0.0.0-20201112155050-0c6587e931a9 // indirect
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974 // indirect

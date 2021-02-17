@@ -1,58 +1,63 @@
 package provider
 
 import (
-	"github.com/prometheus/common/log"
-	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
+	"context"
 	"kafka-backned/config"
 	"kafka-backned/store"
+
+	log "github.com/sirupsen/logrus"
+	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
 )
 
 type Provider struct {
-	config *config.Configure `di.inject:"appConfigure"`
+	configure *config.Configure `di.inject:"appConfigure"`
+	consumer  *kafka.Consumer
 }
 
-func (provider *Provider) Serve(c chan store.Message, done <-chan interface{}) {
+func (provider *Provider) Serve(ctx context.Context, c chan store.Message) {
 	var (
-		consumer *kafka.Consumer
-		err      error
-		topics   []string
-		message  *kafka.Message
+		err     error
+		topics  []string
+		message *kafka.Message
 	)
 
 	go func() {
-		if consumer, err = kafka.NewConsumer(&kafka.ConfigMap{
+		if provider.consumer, err = kafka.NewConsumer(&kafka.ConfigMap{
 			//todo: groupId -> env|var
-			"bootstrap.servers": provider.config.Config.Brokers,
+			"bootstrap.servers": provider.configure.Config.Brokers,
 			"group.id":          "kafka-ui-messages-fetch",
-			"auto.offset.reset": "smallest",
+			"auto.offset.reset": "earliest",
 		}); err != nil {
 			log.Errorf("Failed connection to kafka: %s", err.Error())
-			close(c)
+			return
+		}
+		defer provider.close()
+
+		if topics, err = provider.topics(); err != nil {
+			log.Errorf("Couldn't get topics: %s", err.Error())
 			return
 		}
 
-		if topics, err = provider.topics(consumer); err != nil {
-			log.Errorf("Couldn't get topics: %s", err.Error())
-			close(c)
+		if err = provider.consumer.SubscribeTopics(topics, nil); err != nil {
+			log.Errorf("Kafka: failed to subscribe on topics - '%s'. Err: %s", topics, err.Error())
 			return
 		}
 
 		for {
-			_ = consumer.SubscribeTopics(topics, nil)
 
 			select {
-			case <-provider.config.Context.Done():
-				provider.close(consumer, c)
+			case <-ctx.Done():
+				close(c)
 				return
 
-			case <-done:
-				//todo: investigate
-				provider.close(consumer, c)
+			case <-provider.configure.GlobalContext.Done():
+				close(c)
 				return
 
 			default:
-				if message, err = consumer.ReadMessage(-1); err != nil {
+				if message, err = provider.consumer.ReadMessage(-1); err != nil {
 					log.Warnf("Kafka read message: %s", err.Error())
+					continue
 				}
 				c <- store.New(*message)
 			}
@@ -60,13 +65,19 @@ func (provider *Provider) Serve(c chan store.Message, done <-chan interface{}) {
 	}()
 }
 
-func (provider *Provider) close(consumer *kafka.Consumer, c chan store.Message) {
-	consumer.Close()
-	close(c)
+func (provider *Provider) close() {
+	log.Info("Kafka: close connection....")
+	if err := provider.consumer.Unsubscribe(); err != nil {
+		log.Warnf("Kafka: Failed unsubscribe: %s", err.Error())
+	}
+
+	if err := provider.consumer.Close(); err != nil {
+		log.Warnf("Kafka: failed to close connection: %s", err.Error())
+	}
 }
 
-func (provider *Provider) topics(consumer *kafka.Consumer) (topics []string, err error) {
-	meta, err := consumer.GetMetadata(nil, true, 3000)
+func (provider *Provider) topics() (topics []string, err error) {
+	meta, err := provider.consumer.GetMetadata(nil, true, 3000)
 	if err != nil {
 		return
 	}

@@ -40,7 +40,7 @@ type Message struct {
 }
 
 type Topic struct {
-	Messages Message `json:"topic"`
+	Topic Message `json:"topic"`
 }
 
 type Messages struct {

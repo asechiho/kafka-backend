@@ -4,15 +4,13 @@ import (
 	"context"
 	"github.com/goioc/di"
 	log "github.com/sirupsen/logrus"
+	"kafka-backned/application"
 	"kafka-backned/config"
 	"kafka-backned/provider"
 	"kafka-backned/store"
 	"kafka-backned/ws"
-	"net/http"
 	"os"
-	"os/signal"
 	"reflect"
-	"syscall"
 )
 
 func main() {
@@ -24,31 +22,19 @@ func main() {
 	logInit()
 
 	ctx, cancel = context.WithCancel(context.Background())
-	initContainers(ctx)
+	app := initContainers(ctx, cancel)
 
 	if _, err = di.GetInstance("appConfigure").(*config.Configure).LoadConfig(); err != nil {
 		log.Error(err.Error())
 	}
 
-	go listenTerminate(cancel)
-
-	http.HandleFunc("/", di.GetInstance("wsService").(*ws.WsService).Serve)
-	log.Fatal(http.ListenAndServe(":9002", nil))
+	if err = app.Run(); err != nil {
+		os.Exit(1)
+	}
+	os.Exit(0)
 }
 
-func listenTerminate(close context.CancelFunc) {
-	var (
-		stopChan = make(chan os.Signal, 1)
-		signals  = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT}
-	)
-	signal.Notify(stopChan, signals...)
-
-	log.Debug((<-stopChan).String())
-	close()
-	signal.Stop(stopChan)
-}
-
-func initContainers(ctx context.Context) {
+func initContainers(ctx context.Context, cancel context.CancelFunc) *application.Application {
 	_, _ = di.RegisterBeanInstance("appContext", ctx)
 	_, _ = di.RegisterBeanInstance("appConfig", new(config.Config).Defaults())
 	_, _ = di.RegisterBean("appConfigure", reflect.TypeOf((*config.Configure)(nil)))
@@ -57,10 +43,11 @@ func initContainers(ctx context.Context) {
 	_, _ = di.RegisterBean("storeService", reflect.TypeOf((*store.RethinkService)(nil)))
 	_ = di.InitializeContainer()
 
-	di.GetInstance("wsService").(*ws.WsService).TerminateConnections()
 	if err := di.GetInstance("storeService").(*store.RethinkService).InitializeContext(); err != nil {
 		log.Fatalf("Db error: %s", err.Error())
 	}
+
+	return application.New(cancel)
 }
 
 func logInit() {

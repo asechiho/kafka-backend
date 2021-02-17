@@ -23,8 +23,8 @@ func (config *Config) Defaults() *Config {
 }
 
 type Configure struct {
-	Context context.Context `di.inject:"appContext"`
-	Config  *Config         `di.inject:"appConfig"`
+	GlobalContext context.Context `di.inject:"appContext"`
+	Config        *Config         `di.inject:"appConfig"`
 }
 
 func (configure *Configure) LoadConfig() (cfg *Configure, err error) {

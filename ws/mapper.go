@@ -14,7 +14,7 @@ func ConvertToWsMessage(message store.Message) Messages {
 	_ = json.Unmarshal(message.Message, &body)
 
 	return Messages{
-		Message{
+		Message: Message{
 			Topic:       message.Topic,
 			Headers:     headers,
 			Offset:      message.Offset,
@@ -29,21 +29,21 @@ func ConvertToWsMessage(message store.Message) Messages {
 
 func ConvertToWsTopic(message store.Message) Topic {
 	return Topic{
-		Message{
+		Topic: Message{
 			Topic: message.Topic,
 		},
 	}
 }
 
 //todo: implement filter (message fields)
-func EvaluateFilter(request MessageRequest) map[string]interface{} {
-	msg := map[string]string{}
-
-	for _, filter := range request.Filters {
-		msg[filter.Param] = filter.Value
+func EvaluateFilter(request MessageRequest) func(message store.Message) bool {
+	if len(request.Filters) > 0 {
+		val := request.Filters[0].Value
+		return func(message store.Message) bool {
+			return message.Topic == val
+		}
 	}
-
-	return map[string]interface{}{
-		"new_val": msg,
+	return func(message store.Message) bool {
+		return true
 	}
 }
