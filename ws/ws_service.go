@@ -15,39 +15,40 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type WsService struct {
-	configure         *config.Configure     `di.inject:"appConfigure"`
-	providerSvc       *provider.Provider    `di.inject:"providerService"`
-	storeSvc          *store.RethinkService `di.inject:"storeService"`
-	connections       map[uuid.UUID]net.Conn
-	serveContextClose context.CancelFunc
+type Service interface {
+	Serve()
+	Stop()
 }
 
-func (wsService *WsService) Close() error {
+type WsService struct {
+	configure   *config.Configure     `di.inject:"appConfigure"`
+	providerSvc *provider.Provider    `di.inject:"providerService"`
+	storeSvc    *store.RethinkService `di.inject:"storeService"`
+	connections map[uuid.UUID]net.Conn
+	connTopics  map[uuid.UUID][]string
+}
+
+func (wsService *WsService) Serve() {
+	wsService.connTopics = make(map[uuid.UUID][]string)
+	wsService.connections = make(map[uuid.UUID]net.Conn)
+
+	http.HandleFunc("/", wsService.Socket)
+	go http.ListenAndServe(":9002", nil)
+}
+
+func (wsService *WsService) Stop() {
 	log.Info("Terminate socket")
 
 	for id := range wsService.connections {
 		wsService.closeSocket(id)
 	}
-
-	return nil
 }
 
-func (wsService *WsService) Serve(writer http.ResponseWriter, request *http.Request) {
+func (wsService *WsService) Socket(writer http.ResponseWriter, request *http.Request) {
 	var (
-		id           uuid.UUID
-		err          error
-		serveContext context.Context
+		id  uuid.UUID
+		err error
 	)
-
-	if len(wsService.connections) == 0 {
-		serveContext, wsService.serveContextClose = context.WithCancel(context.Background())
-		storeMsgChan := make(chan store.Message)
-
-		log.Info("Serve provider and store")
-		wsService.providerSvc.Serve(serveContext, storeMsgChan)
-		wsService.storeSvc.Serve(serveContext, storeMsgChan)
-	}
 
 	if id, err = wsService.initConnection(writer, request); err != nil {
 		log.Warnf("Error init connection for '%s': %s", request.URL, err.Error())
@@ -71,9 +72,6 @@ func (wsService *WsService) initConnection(writer http.ResponseWriter, request *
 
 	id := uuid.New()
 	log.Infof("Create '%s' connection", id.String())
-	if wsService.connections == nil {
-		wsService.connections = map[uuid.UUID]net.Conn{}
-	}
 
 	wsService.connections[id] = conn
 	return id, nil
@@ -110,12 +108,10 @@ func (wsService *WsService) handleInput(id uuid.UUID, socketCancel context.Cance
 	return wsCommandChan
 }
 
-//storeMsgChan - ok (get msg chan for socket)
-//wsCmdRequestChan - ok (socket requests)
 func (wsService *WsService) handleOutput(id uuid.UUID, wsCmdReqChan <-chan MessageRequest, wsSocketContext context.Context) {
 	go func() {
-		startTopicChan := make(chan interface{}, 1)
-		filterChan := make(chan func(message store.Message) bool, 1)
+		startTopicChan := make(chan interface{})
+		filterChan := make(chan func(message store.Message) bool)
 
 		wsMsgChan := wsService.storeSvc.Messages(wsSocketContext, filterChan)
 		wsTopicChan := wsService.storeSvc.Topics(wsSocketContext, startTopicChan)
@@ -161,6 +157,7 @@ func (wsService *WsService) handleOutput(id uuid.UUID, wsCmdReqChan <-chan Messa
 				log.Debugf("Ws Command Request channel has msg: %s", cmd)
 
 				switch cmd.Command {
+				//todo
 				case WsCommandTypeTopics:
 					startTopicChan <- 0
 				case WsCommandTypeMessages:
@@ -178,10 +175,15 @@ func (wsService *WsService) closeSocket(id uuid.UUID) {
 		con.Close()
 		delete(wsService.connections, id)
 	}
+}
 
-	if len(wsService.connections) == 0 {
-		wsService.serveContextClose()
+func (wsService *WsService) containsTopic(id uuid.UUID, topic string) bool {
+	for _, item := range wsService.connTopics[id] {
+		if item == topic {
+			return true
+		}
 	}
+	return false
 }
 
 func toJson(message interface{}) []byte {

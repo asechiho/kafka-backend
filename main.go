@@ -14,27 +14,25 @@ import (
 )
 
 func main() {
-	var (
-		ctx    context.Context
-		cancel context.CancelFunc
-		err    error
-	)
+	var err error
 	logInit()
 
-	ctx, cancel = context.WithCancel(context.Background())
-	app := initContainers(ctx, cancel)
-
-	if _, err = di.GetInstance("appConfigure").(*config.Configure).LoadConfig(); err != nil {
-		log.Error(err.Error())
-	}
+	app := initContainers()
 
 	if err = app.Run(); err != nil {
+		log.Error(err.Error())
 		os.Exit(1)
 	}
 	os.Exit(0)
 }
 
-func initContainers(ctx context.Context, cancel context.CancelFunc) *application.Application {
+func initContainers() *application.Application {
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
+
+	ctx, cancel = context.WithCancel(context.WithValue(context.Background(), store.NewTopicChan, make(chan string)))
 	_, _ = di.RegisterBeanInstance("appContext", ctx)
 	_, _ = di.RegisterBeanInstance("appConfig", new(config.Config).Defaults())
 	_, _ = di.RegisterBean("appConfigure", reflect.TypeOf((*config.Configure)(nil)))
@@ -43,15 +41,15 @@ func initContainers(ctx context.Context, cancel context.CancelFunc) *application
 	_, _ = di.RegisterBean("storeService", reflect.TypeOf((*store.RethinkService)(nil)))
 	_ = di.InitializeContainer()
 
-	if err := di.GetInstance("storeService").(*store.RethinkService).InitializeContext(); err != nil {
-		log.Fatalf("Db error: %s", err.Error())
+	if _, err := di.GetInstance("appConfigure").(*config.Configure).LoadConfig(); err != nil {
+		log.Error(err.Error())
 	}
 
-	return application.New(cancel)
+	return application.New(cancel, "wsService", "providerService", "storeService")
 }
 
 func logInit() {
 	log.SetFormatter(&log.JSONFormatter{})
 	log.SetOutput(os.Stdout)
-	log.SetLevel(log.InfoLevel)
+	log.SetLevel(log.TraceLevel)
 }

@@ -29,14 +29,14 @@ type MessageRequest struct {
 }
 
 type Message struct {
-	Topic       string            `json:"topic"`
-	Headers     map[string]string `json:"headers"`
-	Offset      int64             `json:"offset"`
-	Partition   int32             `json:"partition"`
-	Timestamp   int64             `json:"timestamp"`
-	At          string            `json:"at"`
-	PayloadSize int               `json:"payloadSize"`
-	Payload     map[string]string `json:"message"`
+	Topic       string                 `json:"topic"`
+	Headers     map[string]string      `json:"headers"`
+	Offset      string                 `json:"offset"`
+	Partition   string                 `json:"partition"`
+	Timestamp   string                 `json:"timestamp"`
+	At          string                 `json:"at"`
+	PayloadSize string                 `json:"payloadSize"`
+	Payload     map[string]interface{} `json:"payload"`
 }
 
 type Topic struct {

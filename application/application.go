@@ -4,36 +4,44 @@ import (
 	"context"
 	"github.com/goioc/di"
 	log "github.com/sirupsen/logrus"
-	"kafka-backned/ws"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
-type Application struct {
-	cancel context.CancelFunc
-	socket *ws.WsService `di.inject:"wsService"`
+type Service interface {
+	Serve()
+	Stop()
 }
 
-func New(cancel context.CancelFunc) *Application {
-	return &Application{
+type Application struct {
+	cancel   context.CancelFunc
+	services []Service
+}
+
+func New(cancel context.CancelFunc, serviceName ...string) *Application {
+	application := Application{
 		cancel: cancel,
-		socket: di.GetInstance("wsService").(*ws.WsService),
 	}
+	for _, value := range serviceName {
+		application.services = append(application.services, di.GetInstance(value).(Service))
+	}
+
+	return &application
 }
 
 func (application *Application) Run() error {
-	http.HandleFunc("/", application.socket.Serve)
-	go http.ListenAndServe(":9002", nil)
+	for _, service := range application.services {
+		service.Serve()
+	}
+
 	return application.waitTerminate()
 }
 
-func (application *Application) Close() error {
-	if err := application.socket.Close(); err != nil {
-		return err
+func (application *Application) Stop() {
+	for _, service := range application.services {
+		service.Stop()
 	}
-	return nil
 }
 
 func (application *Application) waitTerminate() error {
@@ -47,10 +55,7 @@ func (application *Application) waitTerminate() error {
 	log.Infof("Signal: %s", (<-stopChan).String())
 
 	application.cancel()
-	if err := application.Close(); err != nil {
-		log.Warnf("Terminate error: %s", err.Error())
-		return err
-	}
+	application.Stop()
 
 	signal.Stop(stopChan)
 	close(stopChan)

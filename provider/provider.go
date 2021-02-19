@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"context"
 	"kafka-backned/config"
 	"kafka-backned/store"
 
@@ -9,12 +8,17 @@ import (
 	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
 )
 
+type Service interface {
+	Serve()
+	Stop()
+}
+
 type Provider struct {
 	configure *config.Configure `di.inject:"appConfigure"`
 	consumer  *kafka.Consumer
 }
 
-func (provider *Provider) Serve(ctx context.Context, c chan store.Message) {
+func (provider *Provider) Serve() {
 	var (
 		err     error
 		topics  []string
@@ -46,12 +50,7 @@ func (provider *Provider) Serve(ctx context.Context, c chan store.Message) {
 		for {
 
 			select {
-			case <-ctx.Done():
-				close(c)
-				return
-
 			case <-provider.configure.GlobalContext.Done():
-				close(c)
 				return
 
 			default:
@@ -59,10 +58,14 @@ func (provider *Provider) Serve(ctx context.Context, c chan store.Message) {
 					log.Warnf("Kafka read message: %s", err.Error())
 					continue
 				}
-				c <- store.New(*message)
+				provider.configure.ServeWriteChannel() <- store.New(*message)
 			}
 		}
 	}()
+}
+
+func (provider *Provider) Stop() {
+	return
 }
 
 func (provider *Provider) close() {

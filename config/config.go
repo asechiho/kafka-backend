@@ -23,11 +23,22 @@ func (config *Config) Defaults() *Config {
 }
 
 type Configure struct {
-	GlobalContext context.Context `di.inject:"appContext"`
-	Config        *Config         `di.inject:"appConfig"`
+	GlobalContext    context.Context `di.inject:"appContext"`
+	Config           *Config         `di.inject:"appConfig"`
+	serveMessageChan chan interface{}
+}
+
+func (configure *Configure) ServeReadChannel() <-chan interface{} {
+	return configure.serveMessageChan
+}
+
+func (configure *Configure) ServeWriteChannel() chan interface{} {
+	return configure.serveMessageChan
 }
 
 func (configure *Configure) LoadConfig() (cfg *Configure, err error) {
+	configure.serveMessageChan = make(chan interface{})
+
 	if err = confita.NewLoader(flags.NewBackend(), env.NewBackend()).Load(context.Background(), configure.Config); err != nil {
 		log.Warn("Error load config")
 		return configure, err
