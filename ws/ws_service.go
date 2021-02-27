@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"kafka-backned/config"
-	"kafka-backned/provider"
 	"kafka-backned/store"
 	"net"
 	"net/http"
@@ -22,7 +21,6 @@ type Service interface {
 
 type WsService struct {
 	configure   *config.Configure     `di.inject:"appConfigure"`
-	providerSvc *provider.Provider    `di.inject:"providerService"`
 	storeSvc    *store.RethinkService `di.inject:"storeService"`
 	connections map[uuid.UUID]net.Conn
 	connTopics  map[uuid.UUID][]string
@@ -33,7 +31,7 @@ func (wsService *WsService) Serve() {
 	wsService.connections = make(map[uuid.UUID]net.Conn)
 
 	http.HandleFunc("/", wsService.Socket)
-	go http.ListenAndServe(":9002", nil)
+	go log.Fatal(http.ListenAndServe(":9002", nil))
 }
 
 func (wsService *WsService) Stop() {
@@ -175,15 +173,6 @@ func (wsService *WsService) closeSocket(id uuid.UUID) {
 		con.Close()
 		delete(wsService.connections, id)
 	}
-}
-
-func (wsService *WsService) containsTopic(id uuid.UUID, topic string) bool {
-	for _, item := range wsService.connTopics[id] {
-		if item == topic {
-			return true
-		}
-	}
-	return false
 }
 
 func toJson(message interface{}) []byte {

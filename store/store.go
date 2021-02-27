@@ -104,7 +104,7 @@ func (rethinkService *RethinkService) Messages(socketContext context.Context, fi
 
 			case curFilter := <-filterChan:
 				//todo: filter implement. Changes ?
-				log.Debugf("get filters: %s", curFilter)
+				//log.Debugf("get filters: %s", curFilter)
 				rethinkService.getLastMessages(id, msgChan, curFilter)
 
 			default:
@@ -165,26 +165,34 @@ func (rethinkService *RethinkService) Serve() {
 }
 
 func (rethinkService *RethinkService) Stop() {
-	return
 }
 
-func (rethinkService *RethinkService) InitializeContext() (err error) {
+func (rethinkService *RethinkService) InitializeContext() error {
+	var err error
 	// Create DB
 	rethinkService.connectionPool = make(map[uuid.UUID]*rethink.Session)
 
 	id := rethinkService.connect(false)
-	err = rethinkService.executeCreateIfAbsent(rethink.DBList().Contains(dbName), rethink.DBCreate(dbName), id)
+	if err = rethinkService.executeCreateIfAbsent(rethink.DBList().Contains(dbName), rethink.DBCreate(dbName), id); err != nil {
+		return err
+	}
+
 	rethinkService.close(id)
 
 	// Create Table And Index
 	id = rethinkService.connect(true)
-	err = rethinkService.executeCreateIfAbsent(rethink.TableList().Contains(tableName), rethink.TableCreate(tableName), id)
-	err = rethinkService.executeCreateIfAbsent(rethink.Table(tableName).IndexList().Contains(index), rethink.Table(tableName).IndexCreate(index), id)
+	if err = rethinkService.executeCreateIfAbsent(rethink.TableList().Contains(tableName), rethink.TableCreate(tableName), id); err != nil {
+		return err
+	}
+
+	if err = rethinkService.executeCreateIfAbsent(rethink.Table(tableName).IndexList().Contains(index), rethink.Table(tableName).IndexCreate(index), id); err != nil {
+		return err
+	}
 
 	_ = rethink.Table(tableName).IndexWait().Exec(rethinkService.connectionPool[id])
 	rethinkService.close(id)
 
-	return
+	return nil
 }
 
 func (rethinkService *RethinkService) connect(isDbCreated bool) uuid.UUID {

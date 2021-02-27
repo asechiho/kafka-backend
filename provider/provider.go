@@ -65,7 +65,6 @@ func (provider *Provider) Serve() {
 }
 
 func (provider *Provider) Stop() {
-	return
 }
 
 func (provider *Provider) close() {
