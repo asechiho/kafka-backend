@@ -23,11 +23,9 @@ type WsService struct {
 	configure   *config.Configure     `di.inject:"appConfigure"`
 	storeSvc    *store.RethinkService `di.inject:"storeService"`
 	connections map[uuid.UUID]net.Conn
-	connTopics  map[uuid.UUID][]string
 }
 
 func (wsService *WsService) Serve() {
-	wsService.connTopics = make(map[uuid.UUID][]string)
 	wsService.connections = make(map[uuid.UUID]net.Conn)
 
 	http.HandleFunc("/", wsService.Socket)
@@ -89,10 +87,10 @@ func (wsService *WsService) handleInput(id uuid.UUID, socketCancel context.Cance
 				return
 			default:
 				msg, opCode, _ := wsutil.ReadClientData(wsService.connections[id])
-				log.Infof("Get msg from client '%s': %s", id, string(msg))
+				log.Tracef("Get msg from client '%s': %s", id, string(msg))
 
 				if opCode == ws.OpClose || opCode == ws.OpContinuation {
-					log.Infof("Get closed command for connection '%s'", id)
+					log.Tracef("Get closed command for connection '%s'", id)
 					socketCancel()
 					return
 				}
@@ -108,8 +106,8 @@ func (wsService *WsService) handleInput(id uuid.UUID, socketCancel context.Cance
 
 func (wsService *WsService) handleOutput(id uuid.UUID, wsCmdReqChan <-chan MessageRequest, wsSocketContext context.Context) {
 	go func() {
-		startTopicChan := make(chan interface{})
-		filterChan := make(chan func(message store.Message) bool)
+		startTopicChan := make(chan interface{}, 1)
+		filterChan := make(chan store.Filter, 1)
 
 		wsMsgChan := wsService.storeSvc.Messages(wsSocketContext, filterChan)
 		wsTopicChan := wsService.storeSvc.Topics(wsSocketContext, startTopicChan)
@@ -157,9 +155,12 @@ func (wsService *WsService) handleOutput(id uuid.UUID, wsCmdReqChan <-chan Messa
 				switch cmd.Command {
 				//todo
 				case WsCommandTypeTopics:
+					log.Debug("Get topics")
 					startTopicChan <- 0
 				case WsCommandTypeMessages:
-					filterChan <- EvaluateFilter(cmd)
+					storeFilter := ConvertToStoreFilter(cmd)
+					log.Debugf("Get filters: %v", storeFilter)
+					filterChan <- storeFilter
 				}
 			}
 		}

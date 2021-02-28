@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"kafka-backned/store"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -36,15 +37,16 @@ func ConvertToWsTopic(message store.Message) Topic {
 	}
 }
 
-//todo: implement filter (message fields)
-func EvaluateFilter(request MessageRequest) func(message store.Message) bool {
-	if len(request.Filters) > 0 {
-		val := request.Filters[0].Value
-		return func(message store.Message) bool {
-			return message.Topic == val
-		}
+func ConvertToStoreFilter(request MessageRequest) store.Filter {
+	if len(request.Filters) == 0 {
+		return store.Filter{}
 	}
-	return func(message store.Message) bool {
-		return true
+
+	return store.Filter{
+		FieldName:  request.Filters[0].Param,
+		FieldValue: request.Filters[0].Value,
+		Comparator: func(left interface{}, right interface{}) bool {
+			return strings.EqualFold(left.(string), right.(string))
+		},
 	}
 }
