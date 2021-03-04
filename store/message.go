@@ -58,3 +58,21 @@ func New(msg kafka.Message) Message {
 		Message:   bytes.NewBufferString(string(msg.Value)).Bytes(),
 	}
 }
+
+type Filter struct {
+	FieldName  string
+	FieldValue interface{}
+	Comparator func(interface{}, interface{}) bool
+}
+
+func (filter Filter) Compare(msg Message) bool {
+	if filter.FieldName == "" || filter.Comparator == nil {
+		return true
+	}
+
+	switch filter.FieldName {
+	case "topic":
+		return filter.Comparator(msg.Topic, filter.FieldValue)
+	}
+	return true
+}

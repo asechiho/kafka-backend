@@ -36,6 +36,8 @@ func (rethinkService *RethinkService) Topics(socketContext context.Context, star
 	)
 
 	go func() {
+		defer close(msgChan)
+
 		id := rethinkService.connect(true)
 		defer rethinkService.close(id)
 
@@ -46,17 +48,15 @@ func (rethinkService *RethinkService) Topics(socketContext context.Context, star
 		for {
 			select {
 			case <-socketContext.Done():
-				log.Info("Close rethinkDb connection for read topics")
-				close(msgChan)
+				log.Info("Close rethinkDb connection for read topics. Socket context close")
 				return
 
 			case <-rethinkService.configure.GlobalContext.Done():
-				log.Info("Close rethinkDb connection for read topics")
-				close(msgChan)
+				log.Info("Close rethinkDb connection for read topics. Application context close")
 				return
 
-			//todo: refactor
-			case topic := <-rethinkService.newTopicChan:
+			case topic = <-rethinkService.newTopicChan:
+				log.Tracef("Get new topic: %s", topic)
 				msgChan <- Message{Topic: topic}
 
 			case <-startChan:
@@ -74,54 +74,66 @@ func (rethinkService *RethinkService) Topics(socketContext context.Context, star
 	return msgChan
 }
 
-func (rethinkService *RethinkService) Messages(socketContext context.Context, filterChan <-chan func(message Message) bool) <-chan Message {
-	var (
-		cursor    *rethink.Cursor
-		err       error
-		changes   Changes
-		msgChan   = make(chan Message, 1)
-		curFilter func(message Message) bool
-	)
+func (rethinkService *RethinkService) Messages(socketContext context.Context, filterChan <-chan Filter) <-chan Message {
+	msgChan := make(chan Message, 1)
 
 	go func() {
-		term := rethink.Table(tableName).Changes().Limit(1)
+		var (
+			filter      = Filter{}
+			changesChan = make(chan Message)
+		)
+		defer close(msgChan)
+
 		id := rethinkService.connect(true)
 		defer rethinkService.close(id)
 
-		rethinkService.getLastMessages(id, msgChan, nil)
+		rethinkService.getLastMessages(id, msgChan, filter)
+		rethinkService.listenChanges(id, changesChan)
 
 		for {
 			select {
 			case <-socketContext.Done():
-				log.Info("Close rethinkDb connection for read messages")
-				close(msgChan)
+				log.Info("Close rethinkDb connection for read messages. Socket context close")
 				return
 
 			case <-rethinkService.configure.GlobalContext.Done():
-				log.Info("Close rethinkDb connection for read messages")
-				close(msgChan)
+				log.Info("Close rethinkDb connection for read messages. Application context close")
 				return
 
-			case curFilter := <-filterChan:
+			case filter = <-filterChan:
 				//todo: filter implement. Changes ?
-				//log.Debugf("get filters: %s", curFilter)
-				rethinkService.getLastMessages(id, msgChan, curFilter)
+				rethinkService.getLastMessages(id, msgChan, filter)
 
-			default:
-				if cursor, err = term.Run(rethinkService.connectionPool[id]); err != nil {
-					log.Errorf("RethinkDb get changes error: %s", err.Error())
-				}
-
-				for cursor.Next(&changes) {
-					if curFilter == nil || curFilter(changes.NewValue) {
-						msgChan <- changes.NewValue
-					}
+			case msg := <-changesChan:
+				if filter.Compare(msg) {
+					msgChan <- msg
 				}
 			}
 		}
 	}()
 
 	return msgChan
+}
+
+func (rethinkService *RethinkService) listenChanges(id uuid.UUID, msgChan chan Message) {
+	go func() {
+		var (
+			changes Changes
+			cursor  *rethink.Cursor
+		)
+		defer cursor.Close()
+
+		for {
+			cursor, err := rethink.Table(tableName).Changes().Run(rethinkService.connectionPool[id])
+			if err != nil {
+				log.Errorf("RethinkDb get changes error: %s", err.Error())
+			}
+
+			if cursor.Next(&changes) {
+				msgChan <- changes.NewValue
+			}
+		}
+	}()
 }
 
 func (rethinkService *RethinkService) Serve() {
@@ -153,7 +165,7 @@ func (rethinkService *RethinkService) Serve() {
 					return
 				}
 
-				go rethinkService.appendTopic(msg.(Message).Topic)
+				rethinkService.appendTopic(msg.(Message).Topic)
 
 				err := rethink.Table(tableName).Insert(msg.(Message)).Exec(rethinkService.connectionPool[id])
 				if err != nil {
@@ -171,6 +183,7 @@ func (rethinkService *RethinkService) InitializeContext() error {
 	var err error
 	// Create DB
 	rethinkService.connectionPool = make(map[uuid.UUID]*rethink.Session)
+	rethinkService.newTopicChan = make(chan string)
 
 	id := rethinkService.connect(false)
 	if err = rethinkService.executeCreateIfAbsent(rethink.DBList().Contains(dbName), rethink.DBCreate(dbName), id); err != nil {
@@ -245,16 +258,21 @@ func (rethinkService *RethinkService) executeCreateIfAbsent(listTerm rethink.Ter
 	return nil
 }
 
-func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, msgChan chan Message, filter func(message Message) bool) {
+func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, msgChan chan Message, filter Filter) {
 	cursor, err := rethink.Table(tableName).OrderBy(rethink.Desc("timestamp")).Limit(20).OrderBy(rethink.Asc("timestamp")).Run(rethinkService.connectionPool[id])
 	if err != nil {
 		log.Warnf("Get desc error: %s", err.Error())
 		return
 	}
 
-	var msg Message
-	for cursor.Next(&msg) {
-		if filter == nil || filter(msg) {
+	var msgs []Message
+	if err = cursor.All(&msgs); err != nil {
+		log.Warnf("Get all messages error: %s", err.Error())
+		return
+	}
+
+	for _, msg := range msgs {
+		if filter.Compare(msg) {
 			msgChan <- msg
 		}
 	}
@@ -267,5 +285,6 @@ func (rethinkService *RethinkService) appendTopic(topic string) {
 		}
 	}
 	rethinkService.topics = append(rethinkService.topics, topic)
+	log.Tracef("Send new topic: %s", topic)
 	rethinkService.newTopicChan <- topic
 }

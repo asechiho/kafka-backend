@@ -45,7 +45,7 @@ func initContainers() *application.Application {
 		log.Error(err.Error())
 	}
 
-	return application.New(cancel, "wsService", "providerService", "storeService")
+	return application.New(cancel, "storeService", "providerService", "wsService")
 }
 
 func logInit() {
