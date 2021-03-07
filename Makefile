@@ -14,7 +14,7 @@ clean: ## clean working tree
 	find . -wholename '*_enum.go' -delete
 
 lint: ## golangci linter
-	golangci-lint run -e ST1006,SA1029 --path-prefix $(PWD)
+	golangci-lint run -e ST1006,SA1029,S1034 --path-prefix $(PWD)
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'

@@ -5,19 +5,55 @@ import (
 	"encoding/json"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
+	"reflect"
 	"strconv"
+	"strings"
 	"time"
 )
+
+const messageFilterFields = "topic;offset;partition;timestamp;at;size;"
 
 type Message struct {
 	Topic     string    `rethinkdb:"topic"`
 	Headers   []byte    `rethinkdb:"headers"`
-	Offset    int64     `rethinkdb:"offset"`
-	Partition int32     `rethinkdb:"partition"`
+	Offset    int       `rethinkdb:"offset"`
+	Partition int       `rethinkdb:"partition"`
 	Timestamp int64     `rethinkdb:"timestamp"`
 	At        time.Time `rethinkdb:"at"`
 	Size      int       `rethinkdb:"size"`
 	Message   []byte    `rethinkdb:"message"`
+}
+
+func (message Message) Filter(filters []Filter) bool {
+	if filters == nil {
+		return true
+	}
+
+	for _, filter := range filters {
+		if filter.FieldName == "" || filter.Comparator == nil {
+			return true
+		}
+
+		r := reflect.ValueOf(message)
+
+		if strings.Contains(messageFilterFields, strings.ToLower(filter.FieldName)) {
+			val := r.FieldByName(strings.Title(strings.ToLower(filter.FieldName)))
+			if !filter.Compare(val.Interface(), filter.FieldValue) {
+				return false
+			}
+		}
+
+		var headers = map[string]string{}
+		_ = json.Unmarshal(message.Headers, &headers)
+
+		if val, ok := headers[filter.FieldName]; ok {
+			if !strings.EqualFold(val, filter.FieldValue.(string)) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 type Changes struct {
@@ -50,8 +86,8 @@ func New(msg kafka.Message) Message {
 	return Message{
 		Topic:     *msg.TopicPartition.Topic,
 		Headers:   dbHeaders,
-		Offset:    offset,
-		Partition: msg.TopicPartition.Partition,
+		Offset:    int(offset),
+		Partition: int(msg.TopicPartition.Partition),
 		Timestamp: msg.Timestamp.Unix(),
 		At:        msg.Timestamp,
 		Size:      len(msg.Value),
@@ -59,20 +95,16 @@ func New(msg kafka.Message) Message {
 	}
 }
 
+type Comparator interface {
+	Compare(interface{}, interface{}) bool
+}
+
 type Filter struct {
 	FieldName  string
 	FieldValue interface{}
-	Comparator func(interface{}, interface{}) bool
+	Comparator Comparator
 }
 
-func (filter Filter) Compare(msg Message) bool {
-	if filter.FieldName == "" || filter.Comparator == nil {
-		return true
-	}
-
-	switch filter.FieldName {
-	case "topic":
-		return filter.Comparator(msg.Topic, filter.FieldValue)
-	}
-	return true
+func (filter Filter) Compare(left, right interface{}) bool {
+	return filter.Comparator.Compare(left, right)
 }

@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+var messageFilterFields = map[string]string{
+	"topic":     "string",
+	"offset":    "int",
+	"partition": "int",
+	"timestamp": "int",
+	"at":        "string",
+	"size":      "int",
+}
+
 func ConvertToWsMessage(message store.Message) Messages {
 	var headers = map[string]string{}
 	_ = json.Unmarshal(message.Headers, &headers)
@@ -19,8 +28,8 @@ func ConvertToWsMessage(message store.Message) Messages {
 		Message: Message{
 			Topic:       message.Topic,
 			Headers:     headers,
-			Offset:      strconv.FormatInt(message.Offset, 10),
-			Partition:   string(message.Partition),
+			Offset:      strconv.FormatInt(int64(message.Offset), 10),
+			Partition:   string(rune(message.Partition)),
 			Timestamp:   strconv.FormatInt(message.Timestamp, 10),
 			At:          message.At.Format(time.RFC3339),
 			PayloadSize: strconv.Itoa(message.Size),
@@ -37,16 +46,25 @@ func ConvertToWsTopic(message store.Message) Topic {
 	}
 }
 
-func ConvertToStoreFilter(request MessageRequest) store.Filter {
+func ConvertToStoreFilter(request MessageRequest) (result []store.Filter) {
 	if len(request.Filters) == 0 {
-		return store.Filter{}
+		return []store.Filter{}
 	}
 
-	return store.Filter{
-		FieldName:  request.Filters[0].Param,
-		FieldValue: request.Filters[0].Value,
-		Comparator: func(left interface{}, right interface{}) bool {
-			return strings.EqualFold(left.(string), right.(string))
-		},
+	for _, filter := range request.Filters {
+		if types, ok := messageFilterFields[strings.ToLower(filter.Param)]; ok {
+			result = append(result, store.Filter{
+				FieldName:  filter.Param,
+				FieldValue: filter.Value,
+				Comparator: New(filter.Operator, types),
+			})
+		} else {
+			result = append(result, store.Filter{
+				FieldName:  filter.Param,
+				FieldValue: filter.Value,
+				Comparator: StringComparator{filter.Operator},
+			})
+		}
 	}
+	return
 }

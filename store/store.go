@@ -74,12 +74,12 @@ func (rethinkService *RethinkService) Topics(socketContext context.Context, star
 	return msgChan
 }
 
-func (rethinkService *RethinkService) Messages(socketContext context.Context, filterChan <-chan Filter) <-chan Message {
+func (rethinkService *RethinkService) Messages(socketContext context.Context, filterChan <-chan []Filter) <-chan Message {
 	msgChan := make(chan Message, 1)
 
 	go func() {
 		var (
-			filter      = Filter{}
+			filter      []Filter
 			changesChan = make(chan Message)
 		)
 		defer close(msgChan)
@@ -88,7 +88,7 @@ func (rethinkService *RethinkService) Messages(socketContext context.Context, fi
 		defer rethinkService.close(id)
 
 		rethinkService.getLastMessages(id, msgChan, filter)
-		rethinkService.listenChanges(id, changesChan)
+		rethinkService.listenChanges(socketContext, id, changesChan)
 
 		for {
 			select {
@@ -105,7 +105,7 @@ func (rethinkService *RethinkService) Messages(socketContext context.Context, fi
 				rethinkService.getLastMessages(id, msgChan, filter)
 
 			case msg := <-changesChan:
-				if filter.Compare(msg) {
+				if msg.Filter(filter) {
 					msgChan <- msg
 				}
 			}
@@ -115,7 +115,7 @@ func (rethinkService *RethinkService) Messages(socketContext context.Context, fi
 	return msgChan
 }
 
-func (rethinkService *RethinkService) listenChanges(id uuid.UUID, msgChan chan Message) {
+func (rethinkService *RethinkService) listenChanges(socketContext context.Context, id uuid.UUID, msgChan chan Message) {
 	go func() {
 		var (
 			changes Changes
@@ -124,13 +124,25 @@ func (rethinkService *RethinkService) listenChanges(id uuid.UUID, msgChan chan M
 		defer cursor.Close()
 
 		for {
-			cursor, err := rethink.Table(tableName).Changes().Run(rethinkService.connectionPool[id])
-			if err != nil {
-				log.Errorf("RethinkDb get changes error: %s", err.Error())
-			}
+			select {
+			//todo
+			case <-socketContext.Done():
+				log.Info("Close rethinkDb connection for read messages. Socket context close")
+				return
 
-			if cursor.Next(&changes) {
-				msgChan <- changes.NewValue
+			case <-rethinkService.configure.GlobalContext.Done():
+				log.Info("Close rethinkDb connection for read messages. Application context close")
+				return
+
+			default:
+				cursor, err := rethink.Table(tableName).Changes().Run(rethinkService.connectionPool[id])
+				if err != nil {
+					log.Errorf("RethinkDb get changes error: %s", err.Error())
+				}
+
+				if cursor.Next(&changes) {
+					msgChan <- changes.NewValue
+				}
 			}
 		}
 	}()
@@ -258,8 +270,8 @@ func (rethinkService *RethinkService) executeCreateIfAbsent(listTerm rethink.Ter
 	return nil
 }
 
-func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, msgChan chan Message, filter Filter) {
-	cursor, err := rethink.Table(tableName).OrderBy(rethink.Desc("timestamp")).Limit(20).OrderBy(rethink.Asc("timestamp")).Run(rethinkService.connectionPool[id])
+func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, msgChan chan Message, filters []Filter) {
+	cursor, err := rethink.Table(tableName).OrderBy(rethink.Desc("timestamp")).Limit(100).OrderBy(rethink.Asc("timestamp")).Run(rethinkService.connectionPool[id])
 	if err != nil {
 		log.Warnf("Get desc error: %s", err.Error())
 		return
@@ -272,7 +284,7 @@ func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, msgChan chan
 	}
 
 	for _, msg := range msgs {
-		if filter.Compare(msg) {
+		if msg.Filter(filters) {
 			msgChan <- msg
 		}
 	}
