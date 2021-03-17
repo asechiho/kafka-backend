@@ -107,7 +107,7 @@ func (wsService *WsService) handleInput(id uuid.UUID, socketCancel context.Cance
 func (wsService *WsService) handleOutput(id uuid.UUID, wsCmdReqChan <-chan MessageRequest, wsSocketContext context.Context) {
 	go func() {
 		startTopicChan := make(chan interface{}, 1)
-		filterChan := make(chan store.Filter, 1)
+		filterChan := make(chan []store.Filter, 1)
 
 		wsMsgChan := wsService.storeSvc.Messages(wsSocketContext, filterChan)
 		wsTopicChan := wsService.storeSvc.Topics(wsSocketContext, startTopicChan)

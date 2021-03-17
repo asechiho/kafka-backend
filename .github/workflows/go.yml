@@ -23,4 +23,4 @@ jobs:
         run: go generate ./...
 
       - name: Lint code
-        run: export WORK=$(pwd) && ~/bin/golangci-lint run -e ST1006,SA1029 --path-prefix $WORK
+        run: export WORK=$(pwd) && ~/bin/golangci-lint run -e ST1006,SA1029,S1034 --path-prefix $WORK
