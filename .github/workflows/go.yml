@@ -20,7 +20,7 @@ jobs:
         run: go get github.com/abice/go-enum
 
       - name: Generate enum
-        run: make prepare
+        run: go generate ./...
 
       - name: Lint code
-        run: make lint
+        run: export WORK=$(pwd) && ~/bin/golangci-lint run -e ST1006,SA1029,S1034 --path-prefix $WORK
