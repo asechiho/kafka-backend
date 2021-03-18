@@ -100,7 +100,6 @@ func (rethinkService *RethinkService) Messages(socketContext context.Context, fi
 				return
 
 			case filter = <-filterChan:
-				//todo: filter implement. Changes ?
 				rethinkService.getLastMessages(id, msgChan, filter)
 
 			case msg := <-changesChan:
@@ -128,7 +127,6 @@ func (rethinkService *RethinkService) listenChanges(socketContext context.Contex
 
 		for {
 			select {
-			//todo
 			case <-socketContext.Done():
 				log.Info("Close rethinkDb connection for read messages. Socket context close")
 				return

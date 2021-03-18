@@ -153,7 +153,6 @@ func (wsService *WsService) handleOutput(id uuid.UUID, wsCmdReqChan <-chan Messa
 				log.Debugf("Ws Command Request channel has msg: %s", cmd)
 
 				switch cmd.Command {
-				//todo
 				case WsCommandTypeTopics:
 					log.Debug("Get topics")
 					startTopicChan <- 0
