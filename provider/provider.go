@@ -3,6 +3,7 @@ package provider
 import (
 	"kafka-backned/config"
 	"kafka-backned/store"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
@@ -84,7 +85,7 @@ func (provider *Provider) topics() (topics []string, err error) {
 	}
 
 	for _, v := range meta.Topics {
-		if v.Topic == "__consumer_offsets" {
+		if strings.Contains(v.Topic, store.SkipTopics) {
 			continue
 		}
 		topics = append(topics, v.Topic)

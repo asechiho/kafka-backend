@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	rethink "gopkg.in/rethinkdb/rethinkdb-go.v6"
 	"kafka-backned/config"
+	"strings"
 )
 
 const (
@@ -13,6 +14,7 @@ const (
 	tableName    = "message"
 	index        = "topic"
 	NewTopicChan = "topicChan"
+	SkipTopics   = "__consumer_offsets"
 )
 
 type Service interface {
@@ -165,7 +167,7 @@ func (rethinkService *RethinkService) Serve() {
 		}).Run(rethinkService.connectionPool[id])
 
 		for cursor.Next(&topic) {
-			if topic == "__consumer_offsets" {
+			if strings.Contains(topic, SkipTopics) {
 				continue
 			}
 			rethinkService.topics = append(rethinkService.topics, topic)
@@ -296,7 +298,7 @@ func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, msgChan chan
 
 func (rethinkService *RethinkService) appendTopic(topic string) {
 	for _, v := range rethinkService.topics {
-		if v == topic {
+		if v == topic || strings.Contains(v, SkipTopics) {
 			return
 		}
 	}
