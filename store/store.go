@@ -228,7 +228,7 @@ func (rethinkService *RethinkService) connect(isDbCreated bool) uuid.UUID {
 	)
 
 	connectOpts := rethink.ConnectOpts{
-		Address: rethinkService.configure.Config.DbAddress,
+		Address: rethinkService.configure.Config.DatabaseServer(),
 	}
 
 	if isDbCreated {

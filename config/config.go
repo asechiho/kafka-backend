@@ -2,24 +2,36 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"github.com/heetch/confita"
 	"github.com/heetch/confita/backend/env"
 	"github.com/heetch/confita/backend/flags"
 	log "github.com/sirupsen/logrus"
 )
 
-//todo: add config?
 type Config struct {
-	Brokers   string `config:"kafka-brokers" envconfig:"kafka-brokers"`
-	GroupId   string `config:"kafka-group-id" envconfig:"kafka-group-id"`
-	DbAddress string `config:"db-addr" envconfig:"db-addr"`
+	kafkaHost    string `config:"kafka-host" envconfig:"kafka-host"`
+	kafkaPort    string `config:"kafka-port" envconfig:"kafka-port"`
+	KafkaGroup   string `config:"kafka-group-id" envconfig:"kafka-group-id"`
+	databaseHost string `config:"db-host" envconfig:"db-port"`
+	databasePort string `config:"db-port" envconfig:"db-port"`
 }
 
 func (config *Config) Defaults() *Config {
-	config.Brokers = "127.0.0.1:9092"
-	config.GroupId = "kafka-ui-messages-fetch"
-	config.DbAddress = "127.0.0.1:28015"
+	config.kafkaHost = "127.0.0.1"
+	config.kafkaPort = "9092"
+	config.KafkaGroup = "kafka-ui-messages-fetch"
+	config.databaseHost = "127.0.0.1"
+	config.databasePort = "28015"
 	return config
+}
+
+func (config *Config) KafkaBrokers() string {
+	return fmt.Sprintf("%s:%s", config.kafkaHost, config.kafkaPort)
+}
+
+func (config *Config) DatabaseServer() string {
+	return fmt.Sprintf("%s:%s", config.databaseHost, config.databasePort)
 }
 
 type Configure struct {
