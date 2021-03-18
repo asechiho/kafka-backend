@@ -46,25 +46,32 @@ func ConvertToWsTopic(message store.Message) Topic {
 	}
 }
 
-func ConvertToStoreFilter(request MessageRequest) (result []store.Filter) {
+func ConvertToStoreFilter(request MessageRequest) (result store.Filters) {
+	var (
+		comparator Comparator
+		types      string
+		ok         bool
+	)
+
 	if len(request.Filters) == 0 {
-		return []store.Filter{}
+		return store.Filters{}
 	}
 
 	for _, filter := range request.Filters {
-		if types, ok := messageFilterFields[strings.ToLower(filter.Param)]; ok {
-			result = append(result, store.Filter{
-				FieldName:  filter.Param,
-				FieldValue: filter.Value,
-				Comparator: New(filter.Operator, types),
-			})
-		} else {
-			result = append(result, store.Filter{
-				FieldName:  filter.Param,
-				FieldValue: filter.Value,
-				Comparator: StringComparator{filter.Operator},
-			})
+		if filter.Param == "topic" {
+			result.Topic = filter.Value
 		}
+
+		comparator = StringComparator{filter.Operator}
+		if types, ok = messageFilterFields[strings.ToLower(filter.Param)]; ok {
+			comparator = New(filter.Operator, types)
+		}
+
+		result.Filters = append(result.Filters, store.Filter{
+			FieldName:  filter.Param,
+			FieldValue: filter.Value,
+			Comparator: comparator,
+		})
 	}
 	return
 }

@@ -24,12 +24,8 @@ type Message struct {
 	Message   []byte    `rethinkdb:"message"`
 }
 
-func (message Message) Filter(filters []Filter) bool {
-	if filters == nil {
-		return true
-	}
-
-	for _, filter := range filters {
+func (message Message) Filter(filters Filters) bool {
+	for _, filter := range filters.Filters {
 		if filter.FieldName == "" || filter.Comparator == nil {
 			return true
 		}
@@ -97,6 +93,11 @@ func New(msg kafka.Message) Message {
 
 type Comparator interface {
 	Compare(interface{}, interface{}) bool
+}
+
+type Filters struct {
+	Topic   string
+	Filters []Filter
 }
 
 type Filter struct {

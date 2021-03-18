@@ -74,12 +74,12 @@ func (rethinkService *RethinkService) Topics(socketContext context.Context, star
 	return msgChan
 }
 
-func (rethinkService *RethinkService) Messages(socketContext context.Context, filterChan <-chan []Filter) <-chan Message {
+func (rethinkService *RethinkService) Messages(socketContext context.Context, filterChan <-chan Filters) <-chan Message {
 	msgChan := make(chan Message, 1)
 
 	go func() {
 		var (
-			filter      []Filter
+			filter      Filters
 			changesChan = make(chan Message)
 		)
 		defer close(msgChan)
@@ -87,7 +87,6 @@ func (rethinkService *RethinkService) Messages(socketContext context.Context, fi
 		id := rethinkService.connect(true)
 		defer rethinkService.close(id)
 
-		rethinkService.getLastMessages(id, msgChan, filter)
 		rethinkService.listenChanges(socketContext, id, changesChan)
 
 		for {
@@ -105,6 +104,10 @@ func (rethinkService *RethinkService) Messages(socketContext context.Context, fi
 				rethinkService.getLastMessages(id, msgChan, filter)
 
 			case msg := <-changesChan:
+				if filter.Topic == "" {
+					continue
+				}
+
 				if msg.Filter(filter) {
 					msgChan <- msg
 				}
@@ -270,8 +273,8 @@ func (rethinkService *RethinkService) executeCreateIfAbsent(listTerm rethink.Ter
 	return nil
 }
 
-func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, msgChan chan Message, filters []Filter) {
-	cursor, err := rethink.Table(tableName).OrderBy(rethink.Desc("timestamp")).Limit(100).OrderBy(rethink.Asc("timestamp")).Run(rethinkService.connectionPool[id])
+func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, msgChan chan Message, filters Filters) {
+	cursor, err := rethink.Table(tableName).GetAllByIndex(index, filters.Topic).OrderBy(rethink.Desc("timestamp")).Limit(20).OrderBy(rethink.Asc("timestamp")).Run(rethinkService.connectionPool[id])
 	if err != nil {
 		log.Warnf("Get desc error: %s", err.Error())
 		return
