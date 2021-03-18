@@ -10,11 +10,11 @@ type Comparator interface {
 	Compare(interface{}, interface{}) bool
 }
 
-func New(operatorType OperatorType, castValue string) Comparator {
+func New(operatorType OperatorType, castValue CastType) Comparator {
 	switch castValue {
-	case "int":
+	case CastTypeInt:
 		return NumberComparator{operatorType}
-	case "string":
+	case CastTypeStr:
 		return StringComparator{operatorType}
 	default:
 		return nil
