@@ -165,6 +165,9 @@ func (rethinkService *RethinkService) Serve() {
 		}).Run(rethinkService.connectionPool[id])
 
 		for cursor.Next(&topic) {
+			if topic == "__consumer_offsets" {
+				continue
+			}
 			rethinkService.topics = append(rethinkService.topics, topic)
 		}
 
