@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	rethink "gopkg.in/rethinkdb/rethinkdb-go.v6"
 	"kafka-backned/config"
+	"strings"
 )
 
 const (
@@ -13,6 +14,7 @@ const (
 	tableName    = "message"
 	index        = "topic"
 	NewTopicChan = "topicChan"
+	SkipTopics   = "__consumer_offsets"
 )
 
 type Service interface {
@@ -74,12 +76,12 @@ func (rethinkService *RethinkService) Topics(socketContext context.Context, star
 	return msgChan
 }
 
-func (rethinkService *RethinkService) Messages(socketContext context.Context, filterChan <-chan []Filter) <-chan Message {
+func (rethinkService *RethinkService) Messages(socketContext context.Context, filterChan <-chan Filters) <-chan Message {
 	msgChan := make(chan Message, 1)
 
 	go func() {
 		var (
-			filter      []Filter
+			filter      Filters
 			changesChan = make(chan Message)
 		)
 		defer close(msgChan)
@@ -87,7 +89,6 @@ func (rethinkService *RethinkService) Messages(socketContext context.Context, fi
 		id := rethinkService.connect(true)
 		defer rethinkService.close(id)
 
-		rethinkService.getLastMessages(id, msgChan, filter)
 		rethinkService.listenChanges(socketContext, id, changesChan)
 
 		for {
@@ -101,10 +102,13 @@ func (rethinkService *RethinkService) Messages(socketContext context.Context, fi
 				return
 
 			case filter = <-filterChan:
-				//todo: filter implement. Changes ?
 				rethinkService.getLastMessages(id, msgChan, filter)
 
 			case msg := <-changesChan:
+				if filter.Topic == "" {
+					continue
+				}
+
 				if msg.Filter(filter) {
 					msgChan <- msg
 				}
@@ -125,7 +129,6 @@ func (rethinkService *RethinkService) listenChanges(socketContext context.Contex
 
 		for {
 			select {
-			//todo
 			case <-socketContext.Done():
 				log.Info("Close rethinkDb connection for read messages. Socket context close")
 				return
@@ -164,6 +167,9 @@ func (rethinkService *RethinkService) Serve() {
 		}).Run(rethinkService.connectionPool[id])
 
 		for cursor.Next(&topic) {
+			if strings.Contains(topic, SkipTopics) {
+				continue
+			}
 			rethinkService.topics = append(rethinkService.topics, topic)
 		}
 
@@ -227,7 +233,7 @@ func (rethinkService *RethinkService) connect(isDbCreated bool) uuid.UUID {
 	)
 
 	connectOpts := rethink.ConnectOpts{
-		Address: rethinkService.configure.Config.DbAddress,
+		Address: rethinkService.configure.Config.DatabaseServer(),
 	}
 
 	if isDbCreated {
@@ -270,8 +276,8 @@ func (rethinkService *RethinkService) executeCreateIfAbsent(listTerm rethink.Ter
 	return nil
 }
 
-func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, msgChan chan Message, filters []Filter) {
-	cursor, err := rethink.Table(tableName).OrderBy(rethink.Desc("timestamp")).Limit(100).OrderBy(rethink.Asc("timestamp")).Run(rethinkService.connectionPool[id])
+func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, msgChan chan Message, filters Filters) {
+	cursor, err := rethink.Table(tableName).GetAllByIndex(index, filters.Topic).OrderBy(rethink.Desc("timestamp")).Limit(20).OrderBy(rethink.Asc("timestamp")).Run(rethinkService.connectionPool[id])
 	if err != nil {
 		log.Warnf("Get desc error: %s", err.Error())
 		return
@@ -292,7 +298,7 @@ func (rethinkService *RethinkService) getLastMessages(id uuid.UUID, msgChan chan
 
 func (rethinkService *RethinkService) appendTopic(topic string) {
 	for _, v := range rethinkService.topics {
-		if v == topic {
+		if v == topic || strings.Contains(v, SkipTopics) {
 			return
 		}
 	}

@@ -8,13 +8,15 @@ import (
 	"time"
 )
 
-var messageFilterFields = map[string]string{
-	"topic":     "string",
-	"offset":    "int",
-	"partition": "int",
-	"timestamp": "int",
-	"at":        "string",
-	"size":      "int",
+var messageFilterFields = map[CastType]string{
+	CastTypeInt: "topic;at",
+	CastTypeStr: "offset;partition;timestamp;size",
+	//"topic":     CastTypeStr,
+	//"offset":    CastTypeInt,
+	//"partition": CastTypeInt,
+	//"timestamp": CastTypeInt,
+	//"at":        CastTypeStr,
+	//"size":      CastTypeInt,
 }
 
 func ConvertToWsMessage(message store.Message) Messages {
@@ -46,25 +48,30 @@ func ConvertToWsTopic(message store.Message) Topic {
 	}
 }
 
-func ConvertToStoreFilter(request MessageRequest) (result []store.Filter) {
+func ConvertToStoreFilter(request MessageRequest) (result store.Filters) {
 	if len(request.Filters) == 0 {
-		return []store.Filter{}
+		return store.Filters{}
 	}
 
 	for _, filter := range request.Filters {
-		if types, ok := messageFilterFields[strings.ToLower(filter.Param)]; ok {
-			result = append(result, store.Filter{
-				FieldName:  filter.Param,
-				FieldValue: filter.Value,
-				Comparator: New(filter.Operator, types),
-			})
-		} else {
-			result = append(result, store.Filter{
-				FieldName:  filter.Param,
-				FieldValue: filter.Value,
-				Comparator: StringComparator{filter.Operator},
-			})
+		if filter.Param == "topic" {
+			result.Topic = filter.Value
 		}
+
+		result.Filters = append(result.Filters, store.Filter{
+			FieldName:  filter.Param,
+			FieldValue: filter.Value,
+			Comparator: New(filter.Operator, getCastType(filter.Param)),
+		})
 	}
 	return
+}
+
+func getCastType(fieldName string) CastType {
+	for t, v := range messageFilterFields {
+		if strings.Contains(v, strings.ToLower(fieldName)) {
+			return t
+		}
+	}
+	return CastTypeStr
 }

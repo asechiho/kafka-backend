@@ -3,6 +3,7 @@ package provider
 import (
 	"kafka-backned/config"
 	"kafka-backned/store"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
@@ -27,9 +28,8 @@ func (provider *Provider) Serve() {
 
 	go func() {
 		if provider.consumer, err = kafka.NewConsumer(&kafka.ConfigMap{
-			//todo: groupId -> env|var
-			"bootstrap.servers": provider.configure.Config.Brokers,
-			"group.id":          "kafka-ui-messages-fetch",
+			"bootstrap.servers": provider.configure.Config.KafkaBrokers(),
+			"group.id":          provider.configure.Config.KafkaGroup,
 			"auto.offset.reset": "earliest",
 		}); err != nil {
 			log.Errorf("Failed connection to kafka: %s", err.Error())
@@ -85,7 +85,7 @@ func (provider *Provider) topics() (topics []string, err error) {
 	}
 
 	for _, v := range meta.Topics {
-		if v.Topic == "__consumer_offsets" {
+		if strings.Contains(v.Topic, store.SkipTopics) {
 			continue
 		}
 		topics = append(topics, v.Topic)

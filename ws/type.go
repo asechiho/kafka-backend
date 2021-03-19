@@ -17,6 +17,12 @@ type WsCommandType uint
 //)
 type OperatorType uint
 
+//ENUM(
+//int
+//str
+//)
+type CastType uint
+
 type Filter struct {
 	Param    string       `json:"parameter"`
 	Operator OperatorType `json:"operator"`
